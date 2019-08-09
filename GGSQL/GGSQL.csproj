@@ -1,0 +1,101 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <ProjectGuid>{20ABA4E8-7B63-437C-8864-A0FF7A6B0B50}</ProjectGuid>
+    <OutputType>Library</OutputType>
+    <AppDesignerFolder>Properties</AppDesignerFolder>
+    <RootNamespace>GGSQL</RootNamespace>
+    <AssemblyName>GGSQL.net</AssemblyName>
+    <TargetFrameworkVersion>v4.5.2</TargetFrameworkVersion>
+    <FileAlignment>512</FileAlignment>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>full</DebugType>
+    <Optimize>false</Optimize>
+    <OutputPath>bin\Debug\</OutputPath>
+    <DefineConstants>DEBUG;TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+    <PlatformTarget>x64</PlatformTarget>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+    <DebugType>pdbonly</DebugType>
+    <Optimize>true</Optimize>
+    <OutputPath>bin\Release\</OutputPath>
+    <DefineConstants>TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="CitizenFX.Core.Server, Version=0.0.0.0, Culture=neutral, processorArchitecture=AMD64">
+      <HintPath>..\packages\CitizenFX.Core.Server.1.0.1474\lib\net45\CitizenFX.Core.Server.dll</HintPath>
+    </Reference>
+    <Reference Include="Dapper, Version=1.60.0.0, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\packages\Dapper.1.60.6\lib\net451\Dapper.dll</HintPath>
+    </Reference>
+    <Reference Include="MySqlConnector, Version=0.56.0.0, Culture=neutral, PublicKeyToken=d33d3e53aa5f8c92, processorArchitecture=MSIL">
+      <HintPath>..\packages\MySqlConnector.0.56.0\lib\net45\MySqlConnector.dll</HintPath>
+    </Reference>
+    <Reference Include="Newtonsoft.Json, Version=12.0.0.0, Culture=neutral, PublicKeyToken=30ad4fe6b2a6aeed, processorArchitecture=MSIL">
+      <HintPath>..\packages\Newtonsoft.Json.12.0.2\lib\net45\Newtonsoft.Json.dll</HintPath>
+    </Reference>
+    <Reference Include="System" />
+    <Reference Include="System.Buffers, Version=4.0.2.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51, processorArchitecture=MSIL">
+      <HintPath>..\packages\System.Buffers.4.4.0\lib\netstandard1.1\System.Buffers.dll</HintPath>
+    </Reference>
+    <Reference Include="System.Core" />
+    <Reference Include="System.Memory, Version=4.0.1.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51, processorArchitecture=MSIL">
+      <HintPath>..\packages\System.Memory.4.5.0\lib\netstandard1.1\System.Memory.dll</HintPath>
+    </Reference>
+    <Reference Include="System.Runtime.CompilerServices.Unsafe, Version=4.0.4.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
+      <HintPath>..\packages\System.Runtime.CompilerServices.Unsafe.4.5.0\lib\netstandard1.0\System.Runtime.CompilerServices.Unsafe.dll</HintPath>
+    </Reference>
+    <Reference Include="System.Threading.Tasks.Extensions, Version=4.1.0.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51, processorArchitecture=MSIL">
+      <HintPath>..\packages\System.Threading.Tasks.Extensions.4.3.0\lib\portable-net45+win8+wp8+wpa81\System.Threading.Tasks.Extensions.dll</HintPath>
+    </Reference>
+    <Reference Include="System.Transactions" />
+    <Reference Include="System.Xml.Linq" />
+    <Reference Include="System.Data.DataSetExtensions" />
+    <Reference Include="Microsoft.CSharp" />
+    <Reference Include="System.Data" />
+    <Reference Include="System.Net.Http" />
+    <Reference Include="System.Xml" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="CustomTaskScheduler.cs" />
+    <Compile Include="Models\Ban.cs" />
+    <Compile Include="Models\ClothingStyle.cs" />
+    <Compile Include="Models\Style.cs" />
+    <Compile Include="Models\Styles\PedComponent.cs" />
+    <Compile Include="Models\User.cs" />
+    <Compile Include="Models\WeaponStyle.cs" />
+    <Compile Include="MySqlDatabase.cs" />
+    <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="ServerBase.cs" />
+    <Compile Include="ServerLogger.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="packages.config" />
+  </ItemGroup>
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+  <PropertyGroup>
+    <PostBuildEvent>copy /Y "$(TargetDir)$(TargetName).dll" "D:\fivemserver\server-data-tests\resources\ggsqltests\$(TargetName).dll"
+copy /Y "$(TargetDir)Dapper.dll" "D:\fivemserver\server-data-tests\resources\ggsqltests\Dapper.dll"
+copy /Y "$(TargetDir)Dapper.xml" "D:\fivemserver\server-data-tests\resources\ggsqltests\Dapper.xml"
+copy /Y "$(TargetDir)MySqlConnector.dll" "D:\fivemserver\server-data-tests\resources\ggsqltests\MySqlConnector.dll"
+copy /Y "$(TargetDir)System.Buffers.dll" "D:\fivemserver\server-data-tests\resources\ggsqltests\System.Buffers.dll"
+copy /Y "$(TargetDir)System.Memory.dll" "D:\fivemserver\server-data-tests\resources\ggsqltests\System.Memory.dll"
+copy /Y "$(TargetDir)System.Memory.xml" "D:\fivemserver\server-data-tests\resources\ggsqltests\System.Memory.xml"
+copy /Y "$(TargetDir)System.Runtime.CompilerServices.Unsafe.dll" "D:\fivemserver\server-data-tests\resources\ggsqltests\System.Runtime.CompilerServices.Unsafe.dll"
+copy /Y "$(TargetDir)System.Runtime.CompilerServices.Unsafe.xml" "D:\fivemserver\server-data-tests\resources\ggsqltests\System.Runtime.CompilerServices.Unsafe.xml"
+copy /Y "$(TargetDir)System.Threading.Tasks.Extensions.dll" "D:\fivemserver\server-data-tests\resources\ggsqltests\System.Threading.Tasks.Extensions.dll"
+copy /Y "$(TargetDir)System.Threading.Tasks.Extensions.xml" "D:\fivemserver\server-data-tests\resources\ggsqltests\System.Threading.Tasks.Extensions.xml"
+copy /Y "$(TargetDir)Newtonsoft.Json.dll" "D:\fivemserver\server-data-tests\resources\ggsqltests\Newtonsoft.Json.dll"
+copy /Y "$(TargetDir)Newtonsoft.Json.xml" "D:\fivemserver\server-data-tests\resources\ggsqltests\Newtonsoft.Json.xml"</PostBuildEvent>
+  </PropertyGroup>
+</Project>
