@@ -14,15 +14,27 @@ namespace GGSQL
     public class MySqlDatabase
     {
         private string _connectionString;
+        private bool _debug;
         private readonly CustomTaskScheduler _scheduler;
 
-        public MySqlDatabase(string connectionString)
+        public MySqlDatabase(string connectionString, bool debug = false)
         {
             _connectionString = connectionString;
+            _debug = debug;
             _scheduler = new CustomTaskScheduler();
         }
 
-        public async Task<User> GetUser(string licenseId, string steamId, string xblId, string liveId, string discordId, string fivemId)
+        public async Task DummyQuery()
+        {
+            var sql = "SELECT VERSION();";
+            
+            using (var conn = new MySqlConnection(_connectionString))
+            {
+                await conn.QuerySingleAsync(sql);
+            }
+        }
+
+        public async Task<User> GetUser(Player player)
         {
             var sql = @"SELECT
 	                        Id AS `Id`,
@@ -43,15 +55,15 @@ namespace GGSQL
                         WHERE
                             licenseId = @lid
                         OR
-	                        steamId = @sid
+	                        (steamId IS NOT NULL AND steamId = @sid)
                         OR 
-                            xblId = @xid 
+                            (xblId IS NOT NULL AND xblId = @xid)
                         OR 
-                            liveId = @liveid 
+                            (liveId IS NOT NULL AND liveId = @liveid)
                         OR 
-                            discordId = @did 
+                            (discordId IS NOT NULL AND discordId = @did)
                         OR 
-                            fivemId = @fid;
+                            (fivemId IS NOT NULL AND fivemId = @fid);
                         SELECT
                             ClothingStyles AS `ClothingStyles`
                         FROM
@@ -59,15 +71,22 @@ namespace GGSQL
                         WHERE
                             licenseId = @lid
                         OR
-	                        steamId = @sid
+	                        (steamId IS NOT NULL AND steamId = @sid)
                         OR 
-                            xblId = @xid 
+                            (xblId IS NOT NULL AND xblId = @xid)
                         OR 
-                            liveId = @liveid 
+                            (liveId IS NOT NULL AND liveId = @liveid)
                         OR 
-                            discordId = @did 
+                            (discordId IS NOT NULL AND discordId = @did)
                         OR 
-                            fivemId = @fid;";
+                            (fivemId IS NOT NULL AND fivemId = @fid);";
+
+            var licenseId = player.Identifiers["license"];
+            var steamId = player.Identifiers["steam"];
+            var xblId = player.Identifiers["xbl"];
+            var liveId = player.Identifiers["live"];
+            var discordId = player.Identifiers["discord"];
+            var fivemId = player.Identifiers["fivem"];
 
             using (var conn = new MySqlConnection(_connectionString))
             {
@@ -89,6 +108,10 @@ namespace GGSQL
                     {
                         dbUser.ClothingStyles = JsonConvert.DeserializeObject<List<ClothingStyle>>(clothingStyles);
                     }
+
+                    dbUser.NetId = Convert.ToInt32(player.Handle);
+                    dbUser.Endpoint = player.EndPoint;
+
                     return dbUser;
                 }
             }
@@ -168,8 +191,8 @@ namespace GGSQL
             var sql = @"UPDATE
                             users
                         SET
-                            kills=@kills
-                            deaths=@deaths
+                            kills=@kills,
+                            deaths=@deaths,
                             xp=@xp,
                             money=@money,
                             lastconnected=@now,
@@ -186,6 +209,76 @@ namespace GGSQL
                     return true;
                 }
 
+                return false;
+            }
+        }
+
+        public async Task<bool> SaveUsers(List<User> users)
+        {
+            string sql = @"";
+
+            foreach (var user in users)
+            {
+                var clothingStyles = JsonConvert.SerializeObject(user.ClothingStyles);
+
+                sql += $@"UPDATE
+                            users
+                        SET
+                            kills={user.Kills},
+                            deaths={user.Deaths},
+                            xp={user.Xp},
+                            money={user.Money},
+                            clothingStyles='{clothingStyles}'
+                        WHERE 
+                            id={user.Id};";
+            }
+
+            using(var conn = new MySqlConnection(_connectionString))
+            {
+                var affectedRows = await conn.ExecuteAsync(sql);
+                if(affectedRows != 0)
+                {
+                    return true;
+                }
+
+                return false;
+            }
+        }
+
+        public async Task<Connection> InsertConnection(Connection connection)
+        {
+            var sql = @"INSERT INTO connections
+                            (established, userId, endPoint)
+                        VALUES
+                            (@e, @userId, @ip);
+                        SELECT LAST_INSERT_ID();";
+
+            using(var conn = new MySqlConnection(_connectionString))
+            {
+                var dbResult = await conn.ExecuteScalarAsync<int>(sql, new { e = connection.Established, userId = connection.UserId, ip = connection.EndPoint});
+                connection.Id = dbResult;
+                return connection;
+            }
+        }
+
+        public async Task<bool> UpdateConnection(Connection connection)
+        {
+            var sql = @"UPDATE
+                            connections
+                        SET
+                            dropped = @dropped,
+                            totalSeconds = @totalSeconds
+                        WHERE
+                            id = @id;";
+
+            using (var conn = new MySqlConnection(_connectionString))
+            {
+                var affectedRows = await conn.ExecuteAsync(sql, new { id = connection.Id, dropped = DateTime.UtcNow, totalSeconds = (DateTime.UtcNow - connection.Established).TotalSeconds});
+
+                if(affectedRows != 0)
+                {
+                    return true;
+                }
                 return false;
             }
         }

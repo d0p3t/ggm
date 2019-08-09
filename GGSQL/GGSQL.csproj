@@ -70,8 +70,10 @@
     <Compile Include="CustomTaskScheduler.cs" />
     <Compile Include="Models\Ban.cs" />
     <Compile Include="Models\ClothingStyle.cs" />
+    <Compile Include="Models\Connection.cs" />
     <Compile Include="Models\Style.cs" />
     <Compile Include="Models\Styles\PedComponent.cs" />
+    <Compile Include="Models\SyncUser.cs" />
     <Compile Include="Models\User.cs" />
     <Compile Include="Models\WeaponStyle.cs" />
     <Compile Include="MySqlDatabase.cs" />
@@ -84,18 +86,18 @@
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <PropertyGroup>
-    <PostBuildEvent>copy /Y "$(TargetDir)$(TargetName).dll" "D:\fivemserver\server-data-tests\resources\ggsqltests\$(TargetName).dll"
-copy /Y "$(TargetDir)Dapper.dll" "D:\fivemserver\server-data-tests\resources\ggsqltests\Dapper.dll"
-copy /Y "$(TargetDir)Dapper.xml" "D:\fivemserver\server-data-tests\resources\ggsqltests\Dapper.xml"
-copy /Y "$(TargetDir)MySqlConnector.dll" "D:\fivemserver\server-data-tests\resources\ggsqltests\MySqlConnector.dll"
-copy /Y "$(TargetDir)System.Buffers.dll" "D:\fivemserver\server-data-tests\resources\ggsqltests\System.Buffers.dll"
-copy /Y "$(TargetDir)System.Memory.dll" "D:\fivemserver\server-data-tests\resources\ggsqltests\System.Memory.dll"
-copy /Y "$(TargetDir)System.Memory.xml" "D:\fivemserver\server-data-tests\resources\ggsqltests\System.Memory.xml"
-copy /Y "$(TargetDir)System.Runtime.CompilerServices.Unsafe.dll" "D:\fivemserver\server-data-tests\resources\ggsqltests\System.Runtime.CompilerServices.Unsafe.dll"
-copy /Y "$(TargetDir)System.Runtime.CompilerServices.Unsafe.xml" "D:\fivemserver\server-data-tests\resources\ggsqltests\System.Runtime.CompilerServices.Unsafe.xml"
-copy /Y "$(TargetDir)System.Threading.Tasks.Extensions.dll" "D:\fivemserver\server-data-tests\resources\ggsqltests\System.Threading.Tasks.Extensions.dll"
-copy /Y "$(TargetDir)System.Threading.Tasks.Extensions.xml" "D:\fivemserver\server-data-tests\resources\ggsqltests\System.Threading.Tasks.Extensions.xml"
-copy /Y "$(TargetDir)Newtonsoft.Json.dll" "D:\fivemserver\server-data-tests\resources\ggsqltests\Newtonsoft.Json.dll"
-copy /Y "$(TargetDir)Newtonsoft.Json.xml" "D:\fivemserver\server-data-tests\resources\ggsqltests\Newtonsoft.Json.xml"</PostBuildEvent>
+    <PostBuildEvent>copy /Y "$(TargetDir)$(TargetName).dll" "D:\fivemserver\server-data-gg\resources\ggsqltests\$(TargetName).dll"
+copy /Y "$(TargetDir)Dapper.dll" "D:\fivemserver\server-data-gg\resources\ggsqltests\Dapper.dll"
+copy /Y "$(TargetDir)Dapper.xml" "D:\fivemserver\server-data-gg\resources\ggsqltests\Dapper.xml"
+copy /Y "$(TargetDir)MySqlConnector.dll" "D:\fivemserver\server-data-gg\resources\ggsqltests\MySqlConnector.dll"
+copy /Y "$(TargetDir)System.Buffers.dll" "D:\fivemserver\server-data-gg\resources\ggsqltests\System.Buffers.dll"
+copy /Y "$(TargetDir)System.Memory.dll" "D:\fivemserver\server-data-gg\resources\ggsqltests\System.Memory.dll"
+copy /Y "$(TargetDir)System.Memory.xml" "D:\fivemserver\server-data-gg\resources\ggsqltests\System.Memory.xml"
+copy /Y "$(TargetDir)System.Runtime.CompilerServices.Unsafe.dll" "D:\fivemserver\server-data-gg\resources\ggsqltests\System.Runtime.CompilerServices.Unsafe.dll"
+copy /Y "$(TargetDir)System.Runtime.CompilerServices.Unsafe.xml" "D:\fivemserver\server-data-gg\resources\ggsqltests\System.Runtime.CompilerServices.Unsafe.xml"
+copy /Y "$(TargetDir)System.Threading.Tasks.Extensions.dll" "D:\fivemserver\server-data-gg\resources\ggsqltests\System.Threading.Tasks.Extensions.dll"
+copy /Y "$(TargetDir)System.Threading.Tasks.Extensions.xml" "D:\fivemserver\server-data-gg\resources\ggsqltests\System.Threading.Tasks.Extensions.xml"
+copy /Y "$(TargetDir)Newtonsoft.Json.dll" "D:\fivemserver\server-data-gg\resources\ggsqltests\Newtonsoft.Json.dll"
+copy /Y "$(TargetDir)Newtonsoft.Json.xml" "D:\fivemserver\server-data-gg\resources\ggsqltests\Newtonsoft.Json.xml"</PostBuildEvent>
   </PropertyGroup>
 </Project>

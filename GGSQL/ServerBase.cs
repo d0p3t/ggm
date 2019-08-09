@@ -15,8 +15,12 @@ namespace GGSQL
         protected ServerLogger _logger;
 
         private MySqlDatabase _db = null;
+        private bool _dbDebug = false;
+
+        private int _saveMinutes;
 
         private List<User> _cachedUsers;
+        private List<Connection> _cachedConnections;
 
         protected MySqlDatabase _mysqlDb
         {
@@ -24,7 +28,8 @@ namespace GGSQL
             {
                 if(_db == null)
                 {
-                    _db = new MySqlDatabase(API.GetConvar("mysql_connection_string", "notset"));
+                    _dbDebug = API.GetConvarInt("mysql_debug", 0) == 1 ? true : false;
+                    _db = new MySqlDatabase(API.GetConvar("mysql_connection_string", "notset"), _dbDebug);
                 }
                 return _db;
             }
@@ -32,20 +37,29 @@ namespace GGSQL
 
         public ServerBase()
         {
+            _saveMinutes = 15;
+
             _cachedUsers = new List<User>();
+            _cachedConnections = new List<Connection>();
+
             _logger = new ServerLogger("GGSQL", LogLevel.Info);
 
             EventHandlers["onServerResourceStart"] += new Action<string>(BaseOnServerResourceStart);
             EventHandlers["playerDropped"] += new Action<Player, string>(OnPlayerDropped);
             EventHandlers["playerReady"] += new Action<Player>(OnPlayerReady);
+            EventHandlers["gg_internal:updateXpMoney"] += new Action<int, int, int>(OnUpdateXpAndMoney);
+            EventHandlers["gg_internal:userSync"] += new Action<string>(OnUserSync);
+
+            Tick += SaveTick;
         }
 
         public async void BaseOnServerResourceStart(string resourceName)
         {
             if (!API.GetCurrentResourceName().Equals(resourceName, StringComparison.CurrentCultureIgnoreCase)) { return; }
-            var user = await _mysqlDb.GetUser("license:b91d74d438e493d8b5a1cfb3b86638d6c95e46c0", "INVALID", "INVALID", "INVALID", "INVALID", "INVALID");
-            Debug.WriteLine($"User is {user.Id}");
-            Debug.WriteLine($"Slot 1 model is {user.ClothingStyles.First().ModelName}");
+
+            await _mysqlDb.DummyQuery();
+
+            _logger.Info("Performed Dummy Query");
         }
 
         public async void OnPlayerDropped([FromSource]Player player, string reason)
@@ -58,6 +72,13 @@ namespace GGSQL
             {
                 success = await _mysqlDb.SaveUser(droppedUser);
 
+                var connection = _cachedConnections.Find(x => x.UserId == droppedUser.Id);
+                if (connection != null)
+                {
+                    await _mysqlDb.UpdateConnection(connection);
+                    _cachedConnections.Remove(connection);
+                }
+
                 _cachedUsers.Remove(droppedUser);
             }
 
@@ -66,10 +87,8 @@ namespace GGSQL
 
         public async void OnPlayerReady([FromSource]Player player)
         {
-            _logger.Info($"Called Player Ready by {player.Name}");
             try
             {
-                _logger.Info($"[JOIN] {player.Name} joined. (IP: {player.EndPoint})");
                 var licenseId = player.Identifiers["license"];
                 var steamId = player.Identifiers["steam"];
                 var xblId = player.Identifiers["xbl"];
@@ -77,9 +96,7 @@ namespace GGSQL
                 var discordId = player.Identifiers["discord"];
                 var fivemId = player.Identifiers["fivem"];
 
-                _logger.Info($"License {licenseId} | Steam {steamId} | XBL {xblId} | Live {liveId} | Discord {discordId} | FiveM {fivemId}");
-
-                // 1. Check for cached user
+                // 1. Check for cached user (only really useful on resource restart)
                 User user = null;
 
                 if (_cachedUsers.Count > 0)
@@ -89,16 +106,30 @@ namespace GGSQL
                 // 2. If no cached user
                 if(user == null)
                 {
-                    user = await _mysqlDb.GetUser(licenseId, steamId, xblId, liveId, discordId, fivemId);
+                    user = await _mysqlDb.GetUser(player);
 
                     // 3. Still null so we create new user
                     if(user == null)
                     {
                         user = await _mysqlDb.CreateNewUser(player);
+
+                        if(user == null)
+                        {
+                            player.Drop("Failed to load your profile, please try again. Contact an Administrator after 5 failed tries.");
+                            _logger.Info($"Failed to load profile for {player.Name} (IP: {player.EndPoint})");
+                            API.CancelEvent();
+                            return;
+                        }
                     }
 
                     _cachedUsers.Add(user);
                 }
+
+                var connection = new Connection(user.Id, user.Endpoint);
+                connection = await _mysqlDb.InsertConnection(connection);
+                _cachedConnections.Add(connection);
+
+                _logger.Info($"[JOIN] {player.Name} joined. (IP: {player.EndPoint})");
 
                 TriggerEvent("gg_internal:playerReady", JsonConvert.SerializeObject(user));
             }
@@ -106,6 +137,85 @@ namespace GGSQL
             {
                 _logger.Exception("OnPlayerReady", ex);
             }
+        }
+
+        public void OnUpdateXpAndMoney(int netId, int addedXp, int addedMoney)
+        {
+            var user = _cachedUsers.Find(x => x.NetId == netId);
+
+            if (user == null)
+            {
+                return;
+            }
+
+            var player = Players.FirstOrDefault(x => x.Handle == user.NetId.ToString());
+
+            if (addedXp > 99999 || addedMoney > 99999)
+            {
+                _logger.Warning($"LicenseId [{user.LicenseId}] XP [{addedXp}] or Money [{addedMoney}] update violation!");
+
+                if(player != null)
+                {
+                    player.Drop("Kicked.");
+                }
+
+                return;
+            }
+
+            user.Xp += addedXp;
+            user.Money += addedMoney;
+        }
+
+        private async Task SaveTick()
+        {
+            try
+            {
+                await Delay(60000 * _saveMinutes);
+
+                if (_cachedUsers.Count > 0)
+                {
+                    var success = await _mysqlDb.SaveUsers(_cachedUsers);
+
+                    _logger.Info($"Saving profiles was {(success ? "Successful" : "Unsuccessful")}");
+                }
+            }
+            catch (Exception e)
+            {
+                _logger.Exception("SaveTick", e);
+            }
+        }
+
+        private void OnUserSync(string data)
+        {
+            try
+            {
+                var parsed = JsonConvert.DeserializeObject<List<SyncUser>>(data);
+
+                var count = 0;
+                foreach (var syncUser in parsed)
+                {
+                    var user = _cachedUsers.Find(x => x.NetId == syncUser.NetId && x.Id == syncUser.Id);
+
+                    if (user == null)
+                    {
+                        continue;
+                    }
+
+                    user.Kills = syncUser.Kills;
+                    user.Deaths = syncUser.Deaths;
+                    user.Xp = syncUser.Xp;
+                    user.Money = syncUser.Money;
+
+                    count++;
+                }
+
+                _logger.Info($"Synced {count} users");
+            }
+            catch (Exception e)
+            {
+                _logger.Exception("OnUserSync", e);
+            }
+
         }
     }
 }
