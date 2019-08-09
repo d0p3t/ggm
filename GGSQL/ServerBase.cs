@@ -21,6 +21,9 @@ namespace GGSQL
 
         private List<User> _cachedUsers;
         private List<Connection> _cachedConnections;
+        private List<Ban> _cachedBans;
+
+        private List<BanLog> _cachedTempBans;
 
         protected MySqlDatabase _mysqlDb
         {
@@ -41,6 +44,7 @@ namespace GGSQL
 
             _cachedUsers = new List<User>();
             _cachedConnections = new List<Connection>();
+            _cachedTempBans = new List<BanLog>();
 
             _logger = new ServerLogger("GGSQL", LogLevel.Info);
 
@@ -49,8 +53,66 @@ namespace GGSQL
             EventHandlers["playerReady"] += new Action<Player>(OnPlayerReady);
             EventHandlers["gg_internal:updateXpMoney"] += new Action<int, int, int>(OnUpdateXpAndMoney);
             EventHandlers["gg_internal:userSync"] += new Action<string>(OnUserSync);
+            EventHandlers["gg_internal:TempLogBan"] += new Action<string, string>(OnTempLogBan);
+
+            Exports.Add("gg_internal:checkIsBanned", new Func<string, string, string, string, string, string, dynamic>((license, steam, xbl, live, discord, fivem) => OnCheckBan(license, steam, xbl, live, discord, fivem)));
 
             Tick += SaveTick;
+
+            API.RegisterCommand("banlog", new Action<int, List<object>, string>((source, args, raw) => {
+                if(source != 0)
+                {
+                    return;
+                }
+
+                List<BanLog> toRemove = new List<BanLog>();
+                foreach (var banLog in _cachedTempBans)
+                {
+                    if(banLog.Expiration > DateTime.UtcNow)
+                    {
+                        toRemove.Add(banLog);
+                        continue;
+                    }
+
+                    Debug.WriteLine($"[{banLog.Occurrence}] Name: {banLog.Name} (Reason {banLog.Reason})");
+                }
+
+                if(toRemove.Count != 0)
+                {
+                    foreach (var item in toRemove)
+                    {
+                        _cachedTempBans.Remove(item);
+                    }
+                    Debug.WriteLine($"Cleaned up cached temp bans (Count: {toRemove.Count})");
+                }
+            }), true);
+        }
+
+        public void OnTempLogBan(string name, string reason)
+        {
+            var banLog = new BanLog(name, reason);
+            _cachedTempBans.Add(banLog);
+        }
+
+        public dynamic OnCheckBan(string license, string steam, string xbl, string live, string discord, string fivem)
+        {
+            List<Ban> toRemove = new List<Ban>();
+
+            foreach (var ban in _cachedBans)
+            {
+                if(DateTime.UtcNow > ban.EndDate)
+                {
+                    toRemove.Add(ban);
+                    continue;
+                }
+
+                if(ban.LicenseId == license || ban.SteamId == steam || ban.XblId == xbl || ban.LiveId == live || ban.DiscordId == discord || ban.FivemId == fivem)
+                {
+                    return new { IsBanned = true, Reason = ban.Reason };
+                }
+            }
+
+            return new { IsBanned = false, Reason = "" };
         }
 
         public async void BaseOnServerResourceStart(string resourceName)
@@ -58,6 +120,8 @@ namespace GGSQL
             if (!API.GetCurrentResourceName().Equals(resourceName, StringComparison.CurrentCultureIgnoreCase)) { return; }
 
             await _mysqlDb.DummyQuery();
+
+            _cachedBans = await _mysqlDb.GetAllActiveBans();
 
             _logger.Info("Performed Dummy Query");
         }

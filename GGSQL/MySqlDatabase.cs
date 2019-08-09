@@ -102,7 +102,7 @@ namespace GGSQL
                     var clothingStyles = multi.Read<string>().FirstOrDefault();
                     if (clothingStyles == null)
                     {
-                        dbUser.ClothingStyles = new List<ClothingStyle> { new ClothingStyle(1) };
+                        dbUser.ClothingStyles = new List<ClothingStyle> { new ClothingStyle(1) { IsActiveStyle = true}, new ClothingStyle(2), new ClothingStyle(3) };
                     }
                     else
                     {
@@ -280,6 +280,35 @@ namespace GGSQL
                     return true;
                 }
                 return false;
+            }
+        }
+
+        public async Task<List<Ban>> GetAllActiveBans()
+        {
+            var sql = @"SELECT
+                            Id AS `Id`,
+                            LicenseId AS `LicenseId`,
+                            SteamId AS `SteamId`,
+                            XblId AS `XblId`,
+                            LiveId AS `LiveId`,
+                            DiscordId AS `DiscordId`,
+                            FivemId AS `FivemId`,
+                            EndDate AS `EndDate`,
+                            Reason AS `Reason`
+                        FROM
+                            bans
+                        WHERE
+                            endDate >= @now;";
+
+            using (var conn = new MySqlConnection(_connectionString))
+            {
+                var dbResult = await conn.QueryAsync<Ban>(sql, new { now = DateTime.UtcNow });
+
+                if(dbResult.Count() > 0)
+                {
+                    return dbResult.ToList();
+                }
+                return new List<Ban>();
             }
         }
     }
