@@ -10,7 +10,6 @@ namespace GGSQL.Models
     public abstract class Style
     {
         public int User_id { get; set; }
-
         public bool IsActiveStyle { get; set; }
     }
 }

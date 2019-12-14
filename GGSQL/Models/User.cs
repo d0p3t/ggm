@@ -32,7 +32,7 @@ namespace GGSQL.Models
 
         public DateTime LastConnected { get; set; } = DateTime.UtcNow;
 
-        public List<ClothingStyle> ClothingStyles { get; set; } = new List<ClothingStyle> { new ClothingStyle(1) };
+        public List<ClothingStyle> ClothingStyles { get; set; } = new List<ClothingStyle> { new ClothingStyle(1, true) };
 
         public List<WeaponStyle> WeaponStyles { get; set; } = new List<WeaponStyle>();
 

@@ -18,12 +18,13 @@ namespace GGSQL
         private bool _dbDebug = false;
 
         private int _saveMinutes;
+        private int _flushHours;
 
         private List<User> _cachedUsers;
-        private List<Connection> _cachedConnections;
-        private List<Ban> _cachedBans;
+        //private List<Connection> _cachedConnections;
+        //private List<Ban> _cachedBans;
 
-        private List<BanLog> _cachedTempBans;
+        //private List<BanLog> _cachedTempBans;
 
         protected MySqlDatabase _mysqlDb
         {
@@ -40,11 +41,12 @@ namespace GGSQL
 
         public ServerBase()
         {
-            _saveMinutes = 15;
+            _saveMinutes = 60;
+            _flushHours = 12;
 
             _cachedUsers = new List<User>();
-            _cachedConnections = new List<Connection>();
-            _cachedTempBans = new List<BanLog>();
+            //_cachedConnections = new List<Connection>();
+            //_cachedTempBans = new List<BanLog>();
 
             _logger = new ServerLogger("GGSQL", LogLevel.Info);
 
@@ -53,77 +55,82 @@ namespace GGSQL
             EventHandlers["playerReady"] += new Action<Player>(OnPlayerReady);
             EventHandlers["gg_internal:updateXpMoney"] += new Action<int, int, int>(OnUpdateXpAndMoney);
             EventHandlers["gg_internal:userSync"] += new Action<string>(OnUserSync);
-            EventHandlers["gg_internal:TempLogBan"] += new Action<string, string>(OnTempLogBan);
+            // EventHandlers["gg_internal:TempLogBan"] += new Action<string, string>(OnTempLogBan);
 
-            Exports.Add("gg_internal:checkIsBanned", new Func<string, string, string, string, string, string, dynamic>((license, steam, xbl, live, discord, fivem) => OnCheckBan(license, steam, xbl, live, discord, fivem)));
+            // Exports.Add("gg_internal:checkIsBanned", new Func<string, string, string, string, string, string, dynamic>((license, steam, xbl, live, discord, fivem) => OnCheckBan(license, steam, xbl, live, discord, fivem)));
 
             Tick += SaveTick;
-
-            API.RegisterCommand("banlog", new Action<int, List<object>, string>((source, args, raw) => {
-                if(source != 0)
-                {
-                    return;
-                }
-
-                List<BanLog> toRemove = new List<BanLog>();
-                foreach (var banLog in _cachedTempBans)
-                {
-                    if(banLog.Expiration > DateTime.UtcNow)
-                    {
-                        toRemove.Add(banLog);
-                        continue;
-                    }
-
-                    Debug.WriteLine($"[{banLog.Occurrence}] Name: {banLog.Name} (Reason {banLog.Reason})");
-                }
-
-                if(toRemove.Count != 0)
-                {
-                    foreach (var item in toRemove)
-                    {
-                        _cachedTempBans.Remove(item);
-                    }
-                    Debug.WriteLine($"Cleaned up cached temp bans (Count: {toRemove.Count})");
-                }
-            }), true);
+            //Tick += FlushTick;
         }
 
-        public void OnTempLogBan(string name, string reason)
-        {
-            var banLog = new BanLog(name, reason);
-            _cachedTempBans.Add(banLog);
-        }
+        //public void OnTempLogBan(string name, string reason)
+        //{
+        //    var banLog = new BanLog(name, reason);
+        //    _cachedTempBans.Add(banLog);
+        //}
 
-        public dynamic OnCheckBan(string license, string steam, string xbl, string live, string discord, string fivem)
-        {
-            List<Ban> toRemove = new List<Ban>();
+        //public dynamic OnCheckBan(string license, string steam, string xbl, string live, string discord, string fivem)
+        //{
+        //    List<Ban> toRemove = new List<Ban>();
 
-            foreach (var ban in _cachedBans)
+        //    foreach (var ban in _cachedBans)
+        //    {
+        //        if(DateTime.UtcNow > ban.EndDate)
+        //        {
+        //            toRemove.Add(ban);
+        //            continue;
+        //        }
+
+        //        if(ban.LicenseId == license || ban.SteamId == steam || ban.XblId == xbl || ban.LiveId == live || ban.DiscordId == discord || ban.FivemId == fivem)
+        //        {
+        //            return new { IsBanned = true, Reason = ban.Reason };
+        //        }
+        //    }
+
+        //    return new { IsBanned = false, Reason = "" };
+        //}
+
+        public async Task<dynamic> CheckBan(string netId)
+        {
+            var player = Players.FirstOrDefault(x => x.Handle == netId);
+
+            if (player == null)
             {
-                if(DateTime.UtcNow > ban.EndDate)
-                {
-                    toRemove.Add(ban);
-                    continue;
-                }
-
-                if(ban.LicenseId == license || ban.SteamId == steam || ban.XblId == xbl || ban.LiveId == live || ban.DiscordId == discord || ban.FivemId == fivem)
-                {
-                    return new { IsBanned = true, Reason = ban.Reason };
-                }
+                return new { IsBanned = false};
             }
 
-            return new { IsBanned = false, Reason = "" };
-        }
+            var licenseId = player.Identifiers["license"];
+            var steamId = player.Identifiers["steam"];
+            var xblId = player.Identifiers["xbl"];
+            var liveId = player.Identifiers["live"];
+            var discordId = player.Identifiers["discord"];
+            var fivemId = player.Identifiers["fivem"];
+
+            var ban = await _mysqlDb.IsUserBanned(licenseId, steamId, xblId, liveId, discordId, fivemId);
+
+            if(ban == null)
+            {
+                return new { IsBanned = false};
+            }
+
+            return new { IsBanned = true, ban.Reason, ban.EndDate, ban.Id};
+        } 
 
         public async void BaseOnServerResourceStart(string resourceName)
         {
             if (!API.GetCurrentResourceName().Equals(resourceName, StringComparison.CurrentCultureIgnoreCase)) { return; }
 
+            var stopWatch = new System.Diagnostics.Stopwatch();
+
+            stopWatch.Start();
+
             await _mysqlDb.DummyQuery();
 
-            _cachedBans = await _mysqlDb.GetAllActiveBans();
+            stopWatch.Stop();
 
-            _logger.Info("Performed Dummy Query");
+            // _cachedBans = await _mysqlDb.GetAllActiveBans();
+
+            _logger.Info($"Connection established in {stopWatch.ElapsedMilliseconds}ms");
         }
 
         public async void OnPlayerDropped([FromSource]Player player, string reason)
@@ -135,15 +142,9 @@ namespace GGSQL
             if(droppedUser != null)
             {
                 success = await _mysqlDb.SaveUser(droppedUser);
-
-                var connection = _cachedConnections.Find(x => x.UserId == droppedUser.Id);
-                if (connection != null)
-                {
-                    await _mysqlDb.UpdateConnection(connection);
-                    _cachedConnections.Remove(connection);
-                }
-
-                _cachedUsers.Remove(droppedUser);
+            } else
+            {
+                _logger.Warning($"Could not find cached data for {player.Name}");
             }
 
             _logger.Info($"{player.Name} left (Reason: {reason}) - Saving profile was {(success ? "Successful" : "Unsuccessful")}");
@@ -160,12 +161,15 @@ namespace GGSQL
                 var discordId = player.Identifiers["discord"];
                 var fivemId = player.Identifiers["fivem"];
 
-                // 1. Check for cached user (only really useful on resource restart)
+                // 1. Check for cached user
                 User user = null;
 
                 if (_cachedUsers.Count > 0)
                 {
-                    user = _cachedUsers.FirstOrDefault(x => x.LicenseId == licenseId || x.SteamId == steamId || x.XblId == xblId || x.LiveId == liveId || x.DiscordId == discordId || x.FivemId == fivemId);
+                    user = _cachedUsers.FirstOrDefault(x => x.LicenseId == licenseId);
+                    
+                    if(user != null)
+                        user.NetId = Convert.ToInt32(player.Handle);
                 }
                 // 2. If no cached user
                 if(user == null)
@@ -186,16 +190,17 @@ namespace GGSQL
                         }
                     }
 
+                    user.NetId = Convert.ToInt32(player.Handle);
+
                     _cachedUsers.Add(user);
                 }
-
-                var connection = new Connection(user.Id, user.Endpoint);
-                connection = await _mysqlDb.InsertConnection(connection);
-                _cachedConnections.Add(connection);
 
                 _logger.Info($"[JOIN] {player.Name} joined. (IP: {player.EndPoint})");
 
                 TriggerEvent("gg_internal:playerReady", JsonConvert.SerializeObject(user));
+
+                var connection = new Connection(user.Id, user.Endpoint);
+                await _mysqlDb.InsertConnection(connection);
             }
             catch (Exception ex)
             {
@@ -220,6 +225,7 @@ namespace GGSQL
 
                 if(player != null)
                 {
+                    Exports["ggcommon"].Log("XP/Money Violatoin", $"**Player:** {user.LicenseId}\n**Added XP:** {addedXp}\n**Added Money:** {addedMoney}");
                     player.Drop("Kicked.");
                 }
 
@@ -228,6 +234,8 @@ namespace GGSQL
 
             user.Xp += addedXp;
             user.Money += addedMoney;
+
+            _logger.Info($"Updated money and xp for {user.LicenseId}. Total XP: {user.Xp} Total Money: ${user.Money}");
         }
 
         private async Task SaveTick()
@@ -242,6 +250,31 @@ namespace GGSQL
 
                     _logger.Info($"Saving profiles was {(success ? "Successful" : "Unsuccessful")}");
                 }
+            }
+            catch (Exception e)
+            {
+                _logger.Exception("SaveTick", e);
+            }
+        }
+
+        // TODO
+        private async Task FlushTick()
+        {
+            try
+            {
+                await Delay(60000 * 60 * _flushHours);
+
+                List<User> usersToKeep = new List<User>();
+
+                foreach(var player in Players)
+                {
+                    var user = _cachedUsers.FirstOrDefault(x => x.NetId == Convert.ToInt32(player.Handle));
+                    if(user != null)
+                    {
+                        usersToKeep.Add(user);
+                    }
+                }
+                _cachedUsers = usersToKeep;
             }
             catch (Exception e)
             {

@@ -65,7 +65,7 @@ namespace GGSQL
             {
                 try
                 {
-                    CitizenFX.Core.Debug.WriteLine($"[{DateTime.Now.ToString("yyyy-MM-dd-HH:mm:ss:fff")}] - [{_scriptName}][{level.ToString()}] - {_regexMsgCleaner.Replace(msg, " ")}");
+                    CitizenFX.Core.Debug.WriteLine($"{level.ToString()}: [{DateTime.Now.ToString("yyyy-MM-dd-HH:mm:ss:fff")}] {_regexMsgCleaner.Replace(msg, " ")}");
                 }
                 catch (Exception ex)
                 {

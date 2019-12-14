@@ -33,9 +33,10 @@ namespace GGSQL.Models
             };
         }
 
-        public ClothingStyle(int slotId)
+        public ClothingStyle(int slotId, bool isFirstStyle = false)
         {
             SlotId = slotId;
+            IsActiveStyle = isFirstStyle;
         }
     }
 }

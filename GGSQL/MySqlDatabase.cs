@@ -27,7 +27,7 @@ namespace GGSQL
         public async Task DummyQuery()
         {
             var sql = "SELECT VERSION();";
-            
+
             using (var conn = new MySqlConnection(_connectionString))
             {
                 await conn.QuerySingleAsync(sql);
@@ -120,8 +120,8 @@ namespace GGSQL
         public async Task<Ban> IsUserBanned(string licenseId, string steamId, string xblId, string liveId, string discordId, string fivemId)
         {
             var sql = @"SELECT
-                            End_date AS `EndDate`,
-                            Reason AS `Reason`
+                            endDate AS `EndDate`,
+                            reason AS `Reason`
                         FROM 
                             bans 
                         WHERE 
@@ -245,19 +245,16 @@ namespace GGSQL
             }
         }
 
-        public async Task<Connection> InsertConnection(Connection connection)
+        public async Task InsertConnection(Connection connection)
         {
             var sql = @"INSERT INTO connections
                             (established, userId, endPoint)
                         VALUES
-                            (@e, @userId, @ip);
-                        SELECT LAST_INSERT_ID();";
+                            (@e, @userId, @ip);";
 
             using(var conn = new MySqlConnection(_connectionString))
             {
-                var dbResult = await conn.ExecuteScalarAsync<int>(sql, new { e = connection.Established, userId = connection.UserId, ip = connection.EndPoint});
-                connection.Id = dbResult;
-                return connection;
+                await conn.ExecuteAsync(sql, new { e = connection.Established, userId = connection.UserId, ip = connection.EndPoint});
             }
         }
 
