@@ -1,7 +1,7 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
 using System.Threading.Tasks;
 using Dapper;
 using MySql.Data.MySqlClient;
@@ -213,7 +213,7 @@ namespace GGSQL
             }
         }
 
-        public async Task<bool> SaveUsers(List<User> users)
+        public async Task<bool> SaveUsers(ConcurrentQueue<User> users)
         {
             string sql = @"";
 
@@ -245,16 +245,19 @@ namespace GGSQL
             }
         }
 
-        public async Task InsertConnection(Connection connection)
+        public async Task<Connection> InsertConnection(Connection connection)
         {
             var sql = @"INSERT INTO connections
                             (established, userId, endPoint)
                         VALUES
-                            (@e, @userId, @ip);";
+                            (@e, @userId, @ip);
+                        SELECT LAST_INSERT_ID();";
 
             using(var conn = new MySqlConnection(_connectionString))
             {
-                await conn.ExecuteAsync(sql, new { e = connection.Established, userId = connection.UserId, ip = connection.EndPoint});
+                var dbResult = await conn.ExecuteScalarAsync<int>(sql, new { e = connection.Established, userId = connection.UserId, ip = connection.EndPoint});
+                connection.Id = dbResult;
+                return connection;
             }
         }
 

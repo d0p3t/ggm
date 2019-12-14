@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -20,8 +21,8 @@ namespace GGSQL
         private int _saveMinutes;
         private int _flushHours;
 
-        private List<User> _cachedUsers;
-        //private List<Connection> _cachedConnections;
+        private ConcurrentQueue<User> _cachedUsers;
+        private ConcurrentQueue<Connection> _cachedConnections;
         //private List<Ban> _cachedBans;
 
         //private List<BanLog> _cachedTempBans;
@@ -44,8 +45,8 @@ namespace GGSQL
             _saveMinutes = 60;
             _flushHours = 12;
 
-            _cachedUsers = new List<User>();
-            //_cachedConnections = new List<Connection>();
+            _cachedUsers = new ConcurrentQueue<User>();
+            _cachedConnections = new ConcurrentQueue<Connection>();
             //_cachedTempBans = new List<BanLog>();
 
             _logger = new ServerLogger("GGSQL", LogLevel.Info);
@@ -128,23 +129,25 @@ namespace GGSQL
 
             stopWatch.Stop();
 
-            // _cachedBans = await _mysqlDb.GetAllActiveBans();
-
-            _logger.Info($"Connection established in {stopWatch.ElapsedMilliseconds}ms");
+            _logger.Info($"[DB] Connection established in {stopWatch.ElapsedMilliseconds}ms");
         }
 
         public async void OnPlayerDropped([FromSource]Player player, string reason)
         {
-            var droppedUser = _cachedUsers.Find(x => x.NetId == Convert.ToInt32(player.Handle));
+            var droppedUser = _cachedUsers.SingleOrDefault(x => x.NetId == Convert.ToInt32(player.Handle));
 
             var success = false;
 
             if(droppedUser != null)
             {
                 success = await _mysqlDb.SaveUser(droppedUser);
-            } else
-            {
-                _logger.Warning($"Could not find cached data for {player.Name}");
+
+                var droppedConnection = _cachedConnections.SingleOrDefault(c => c.UserId == droppedUser.Id);
+                if (droppedConnection != null)
+                {
+                    success = await _mysqlDb.UpdateConnection(droppedConnection);
+                    _cachedConnections.TryDequeue(out var result);
+                }
             }
 
             _logger.Info($"{player.Name} left (Reason: {reason}) - Saving profile was {(success ? "Successful" : "Unsuccessful")}");
@@ -192,7 +195,7 @@ namespace GGSQL
 
                     user.NetId = Convert.ToInt32(player.Handle);
 
-                    _cachedUsers.Add(user);
+                    _cachedUsers.Enqueue(user);
                 }
 
                 _logger.Info($"[JOIN] {player.Name} joined. (IP: {player.EndPoint})");
@@ -200,7 +203,9 @@ namespace GGSQL
                 TriggerEvent("gg_internal:playerReady", JsonConvert.SerializeObject(user));
 
                 var connection = new Connection(user.Id, user.Endpoint);
-                await _mysqlDb.InsertConnection(connection);
+                var conn = await _mysqlDb.InsertConnection(connection);
+
+                _cachedConnections.Enqueue(conn);
             }
             catch (Exception ex)
             {
@@ -210,7 +215,7 @@ namespace GGSQL
 
         public void OnUpdateXpAndMoney(int netId, int addedXp, int addedMoney)
         {
-            var user = _cachedUsers.Find(x => x.NetId == netId);
+            var user = _cachedUsers.SingleOrDefault(x => x.NetId == netId);
 
             if (user == null)
             {
@@ -264,14 +269,14 @@ namespace GGSQL
             {
                 await Delay(60000 * 60 * _flushHours);
 
-                List<User> usersToKeep = new List<User>();
+                ConcurrentQueue<User> usersToKeep = new ConcurrentQueue<User>();
 
                 foreach(var player in Players)
                 {
                     var user = _cachedUsers.FirstOrDefault(x => x.NetId == Convert.ToInt32(player.Handle));
                     if(user != null)
                     {
-                        usersToKeep.Add(user);
+                        usersToKeep.Enqueue(user);
                     }
                 }
                 _cachedUsers = usersToKeep;
@@ -291,7 +296,7 @@ namespace GGSQL
                 var count = 0;
                 foreach (var syncUser in parsed)
                 {
-                    var user = _cachedUsers.Find(x => x.NetId == syncUser.NetId && x.Id == syncUser.Id);
+                    var user = _cachedUsers.SingleOrDefault(x => x.NetId == syncUser.NetId && x.Id == syncUser.Id);
 
                     if (user == null)
                     {
