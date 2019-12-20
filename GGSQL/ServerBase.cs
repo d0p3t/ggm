@@ -132,98 +132,96 @@ namespace GGSQL
             _logger.Info($"[DB] Connection established in {stopWatch.ElapsedMilliseconds}ms");
         }
 
-        public void OnPlayerDropped([FromSource]Player player, string reason)
+        public async void OnPlayerDropped([FromSource]Player player, string reason)
         {
             var playerName = player.Name;
             var playerHandle = player.Handle;
-            var _ = Task.Run(async() =>
+
+            var droppedUser = _cachedUsers.FirstOrDefault(x => x.NetId == Convert.ToInt32(playerHandle));
+
+            var success = false;
+
+            if (droppedUser != null)
             {
-                var droppedUser = _cachedUsers.SingleOrDefault(x => x.NetId == Convert.ToInt32(playerHandle));
+                success = await _mysqlDb.SaveUser(droppedUser);
 
-                var success = false;
-
-                if (droppedUser != null)
+                var droppedConnection = _cachedConnections.FirstOrDefault(c => c.UserId == droppedUser.Id);
+                if (droppedConnection != null)
                 {
-                    success = await _mysqlDb.SaveUser(droppedUser);
-
-                    var droppedConnection = _cachedConnections.FirstOrDefault(c => c.UserId == droppedUser.Id);
-                    if (droppedConnection != null)
-                    {
-                        success = await _mysqlDb.UpdateConnection(droppedConnection);
-                        _cachedConnections.Remove(droppedConnection);
-                    }
+                    success = await _mysqlDb.UpdateConnection(droppedConnection);
+                    _cachedConnections.Remove(droppedConnection);
                 }
+            }
 
-                _logger.Info($"{playerName} left (Reason: {reason}) - Saving profile was {(success ? "Successful" : "Unsuccessful")}");
-            });
+            _logger.Info($"{playerName} left (Reason: {reason}) - Saving profile was {(success ? "Successful" : "Unsuccessful")}");
         }
 
-        public void OnPlayerReady([FromSource]Player player)
+        public async void OnPlayerReady([FromSource]Player player)
         {
-            var _ = Task.Run(async () =>
+            try
             {
-                try
+                var licenseId = player.Identifiers["license"];
+                var steamId = player.Identifiers["steam"];
+                var xblId = player.Identifiers["xbl"];
+                var liveId = player.Identifiers["live"];
+                var discordId = player.Identifiers["discord"];
+                var fivemId = player.Identifiers["fivem"];
+
+                // 1. Check for cached user
+                User user = null;
+
+                if (_cachedUsers.Count > 0)
                 {
-                    var licenseId = player.Identifiers["license"];
-                    var steamId = player.Identifiers["steam"];
-                    var xblId = player.Identifiers["xbl"];
-                    var liveId = player.Identifiers["live"];
-                    var discordId = player.Identifiers["discord"];
-                    var fivemId = player.Identifiers["fivem"];
+                    user = _cachedUsers.FirstOrDefault(x => x.LicenseId == licenseId);
 
-                    // 1. Check for cached user
-                    User user = null;
+                    if (user != null)
+                        user.NetId = Convert.ToInt32(player.Handle);
+                }
+                // 2. If no cached user
+                if (user == null)
+                {
+                    user = await _mysqlDb.GetUser(player);
 
-                    if (_cachedUsers.Count > 0)
-                    {
-                        user = _cachedUsers.FirstOrDefault(x => x.LicenseId == licenseId);
-
-                        if (user != null)
-                            user.NetId = Convert.ToInt32(player.Handle);
-                    }
-                    // 2. If no cached user
+                    // 3. Still null so we create new user
                     if (user == null)
                     {
-                        user = await _mysqlDb.GetUser(player);
+                        user = await _mysqlDb.CreateNewUser(player);
 
-                        // 3. Still null so we create new user
                         if (user == null)
                         {
-                            user = await _mysqlDb.CreateNewUser(player);
-
-                            if (user == null)
-                            {
-                                player.Drop("Failed to load your profile, please try again. Contact an Administrator after 5 failed tries.");
-                                _logger.Info($"Failed to load profile for {player.Name} (IP: {player.EndPoint})");
-                                API.CancelEvent();
-                                return;
-                            }
+                            player.Drop("Failed to load your profile, please try again. Contact an Administrator after 5 failed tries.");
+                            _logger.Info($"Failed to load profile for {player.Name} (IP: {player.EndPoint})");
+                            API.CancelEvent();
+                            return;
                         }
-
-                        user.NetId = Convert.ToInt32(player.Handle);
-
-                        _cachedUsers.Add(user);
                     }
 
-                    _logger.Info($"[JOIN] {player.Name} joined. (IP: {player.EndPoint})");
+                    user.NetId = Convert.ToInt32(player.Handle);
 
-                    TriggerEvent("gg_internal:playerReady", JsonConvert.SerializeObject(user));
+                    _cachedUsers.Add(user);
+                }
 
-                    var connection = new Connection(user.Id, user.Endpoint);
-                    var conn = await _mysqlDb.InsertConnection(connection);
+                _logger.Info($"[JOIN] {player.Name} joined. (IP: {player.EndPoint})");
 
+                TriggerEvent("gg_internal:playerReady", JsonConvert.SerializeObject(user));
+
+                var connection = _cachedConnections.FirstOrDefault(c => c.UserId == user.Id);
+                if(connection == null)
+                    connection = new Connection(user.Id, user.Endpoint);
+
+                var conn = await _mysqlDb.InsertConnection(connection);
+                if(conn != null)
                     _cachedConnections.Add(conn);
-                }
-                catch (Exception ex)
-                {
-                    _logger.Exception("OnPlayerReady", ex);
-                }
-            });
+            }
+            catch (Exception ex)
+            {
+                _logger.Exception("OnPlayerReady", ex);
+            }
         }
 
         public void OnUpdateXpAndMoney(int netId, int addedXp, int addedMoney)
         {
-            var user = _cachedUsers.SingleOrDefault(x => x.NetId == netId);
+            var user = _cachedUsers.FirstOrDefault(x => x.NetId == netId);
 
             if (user == null)
             {
