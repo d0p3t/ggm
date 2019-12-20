@@ -65,11 +65,11 @@ namespace GGSQL
             {
                 try
                 {
-                    CitizenFX.Core.Debug.WriteLine($"{level.ToString()}: [{DateTime.Now.ToString("yyyy-MM-dd-HH:mm:ss:fff")}] {_regexMsgCleaner.Replace(msg, " ")}");
+                    CitizenFX.Core.Debug.WriteLine($"[GGSQL] {level.ToString()}: [{DateTime.Now.ToString("yyyy-MM-dd-HH:mm:ss:fff")}] {_regexMsgCleaner.Replace(msg, " ")}");
                 }
                 catch (Exception ex)
                 {
-                    CitizenFX.Core.Debug.WriteLine($"[{DateTime.Now.ToString("yyyy-MM-dd-HH:mm:ss:fff")}] - [LOGGER] - [ERROR OCCURED ATTEMPTING TO LOG ERROR MSG]; Error: {ex.Message}");
+                    CitizenFX.Core.Debug.WriteLine($"[GGSQL] [{DateTime.Now.ToString("yyyy-MM-dd-HH:mm:ss:fff")}] [ERROR OCCURED ATTEMPTING TO LOG ERROR MSG]; Error: {ex.Message}");
                 }
             }
         }

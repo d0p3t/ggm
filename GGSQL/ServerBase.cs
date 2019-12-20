@@ -21,8 +21,8 @@ namespace GGSQL
         private int _saveMinutes;
         private int _flushHours;
 
-        private ConcurrentQueue<User> _cachedUsers;
-        private ConcurrentQueue<Connection> _cachedConnections;
+        private List<User> _cachedUsers;
+        private List<Connection> _cachedConnections;
         //private List<Ban> _cachedBans;
 
         //private List<BanLog> _cachedTempBans;
@@ -42,11 +42,11 @@ namespace GGSQL
 
         public ServerBase()
         {
-            _saveMinutes = 60;
-            _flushHours = 12;
+            _saveMinutes = 5;
+            _flushHours = 3;
 
-            _cachedUsers = new ConcurrentQueue<User>();
-            _cachedConnections = new ConcurrentQueue<Connection>();
+            _cachedUsers = new List<User>();
+            _cachedConnections = new List<Connection>();
             //_cachedTempBans = new List<BanLog>();
 
             _logger = new ServerLogger("GGSQL", LogLevel.Info);
@@ -61,7 +61,7 @@ namespace GGSQL
             // Exports.Add("gg_internal:checkIsBanned", new Func<string, string, string, string, string, string, dynamic>((license, steam, xbl, live, discord, fivem) => OnCheckBan(license, steam, xbl, live, discord, fivem)));
 
             Tick += SaveTick;
-            //Tick += FlushTick;
+            Tick += FlushTick;
         }
 
         //public void OnTempLogBan(string name, string reason)
@@ -132,85 +132,93 @@ namespace GGSQL
             _logger.Info($"[DB] Connection established in {stopWatch.ElapsedMilliseconds}ms");
         }
 
-        public async void OnPlayerDropped([FromSource]Player player, string reason)
+        public void OnPlayerDropped([FromSource]Player player, string reason)
         {
-            var droppedUser = _cachedUsers.SingleOrDefault(x => x.NetId == Convert.ToInt32(player.Handle));
-
-            var success = false;
-
-            if(droppedUser != null)
+            var playerName = player.Name;
+            var playerHandle = player.Handle;
+            var _ = Task.Run(async() =>
             {
-                success = await _mysqlDb.SaveUser(droppedUser);
+                var droppedUser = _cachedUsers.SingleOrDefault(x => x.NetId == Convert.ToInt32(playerHandle));
 
-                var droppedConnection = _cachedConnections.SingleOrDefault(c => c.UserId == droppedUser.Id);
-                if (droppedConnection != null)
+                var success = false;
+
+                if (droppedUser != null)
                 {
-                    success = await _mysqlDb.UpdateConnection(droppedConnection);
-                    _cachedConnections.TryDequeue(out var result);
-                }
-            }
+                    success = await _mysqlDb.SaveUser(droppedUser);
 
-            _logger.Info($"{player.Name} left (Reason: {reason}) - Saving profile was {(success ? "Successful" : "Unsuccessful")}");
+                    var droppedConnection = _cachedConnections.FirstOrDefault(c => c.UserId == droppedUser.Id);
+                    if (droppedConnection != null)
+                    {
+                        success = await _mysqlDb.UpdateConnection(droppedConnection);
+                        _cachedConnections.Remove(droppedConnection);
+                    }
+                }
+
+                _logger.Info($"{playerName} left (Reason: {reason}) - Saving profile was {(success ? "Successful" : "Unsuccessful")}");
+            });
         }
 
-        public async void OnPlayerReady([FromSource]Player player)
+        public void OnPlayerReady([FromSource]Player player)
         {
-            try
+            var _ = Task.Run(async () =>
             {
-                var licenseId = player.Identifiers["license"];
-                var steamId = player.Identifiers["steam"];
-                var xblId = player.Identifiers["xbl"];
-                var liveId = player.Identifiers["live"];
-                var discordId = player.Identifiers["discord"];
-                var fivemId = player.Identifiers["fivem"];
-
-                // 1. Check for cached user
-                User user = null;
-
-                if (_cachedUsers.Count > 0)
+                try
                 {
-                    user = _cachedUsers.FirstOrDefault(x => x.LicenseId == licenseId);
-                    
-                    if(user != null)
-                        user.NetId = Convert.ToInt32(player.Handle);
-                }
-                // 2. If no cached user
-                if(user == null)
-                {
-                    user = await _mysqlDb.GetUser(player);
+                    var licenseId = player.Identifiers["license"];
+                    var steamId = player.Identifiers["steam"];
+                    var xblId = player.Identifiers["xbl"];
+                    var liveId = player.Identifiers["live"];
+                    var discordId = player.Identifiers["discord"];
+                    var fivemId = player.Identifiers["fivem"];
 
-                    // 3. Still null so we create new user
-                    if(user == null)
+                    // 1. Check for cached user
+                    User user = null;
+
+                    if (_cachedUsers.Count > 0)
                     {
-                        user = await _mysqlDb.CreateNewUser(player);
+                        user = _cachedUsers.FirstOrDefault(x => x.LicenseId == licenseId);
 
-                        if(user == null)
+                        if (user != null)
+                            user.NetId = Convert.ToInt32(player.Handle);
+                    }
+                    // 2. If no cached user
+                    if (user == null)
+                    {
+                        user = await _mysqlDb.GetUser(player);
+
+                        // 3. Still null so we create new user
+                        if (user == null)
                         {
-                            player.Drop("Failed to load your profile, please try again. Contact an Administrator after 5 failed tries.");
-                            _logger.Info($"Failed to load profile for {player.Name} (IP: {player.EndPoint})");
-                            API.CancelEvent();
-                            return;
+                            user = await _mysqlDb.CreateNewUser(player);
+
+                            if (user == null)
+                            {
+                                player.Drop("Failed to load your profile, please try again. Contact an Administrator after 5 failed tries.");
+                                _logger.Info($"Failed to load profile for {player.Name} (IP: {player.EndPoint})");
+                                API.CancelEvent();
+                                return;
+                            }
                         }
+
+                        user.NetId = Convert.ToInt32(player.Handle);
+
+                        _cachedUsers.Add(user);
                     }
 
-                    user.NetId = Convert.ToInt32(player.Handle);
+                    _logger.Info($"[JOIN] {player.Name} joined. (IP: {player.EndPoint})");
 
-                    _cachedUsers.Enqueue(user);
+                    TriggerEvent("gg_internal:playerReady", JsonConvert.SerializeObject(user));
+
+                    var connection = new Connection(user.Id, user.Endpoint);
+                    var conn = await _mysqlDb.InsertConnection(connection);
+
+                    _cachedConnections.Add(conn);
                 }
-
-                _logger.Info($"[JOIN] {player.Name} joined. (IP: {player.EndPoint})");
-
-                TriggerEvent("gg_internal:playerReady", JsonConvert.SerializeObject(user));
-
-                var connection = new Connection(user.Id, user.Endpoint);
-                var conn = await _mysqlDb.InsertConnection(connection);
-
-                _cachedConnections.Enqueue(conn);
-            }
-            catch (Exception ex)
-            {
-                _logger.Exception("OnPlayerReady", ex);
-            }
+                catch (Exception ex)
+                {
+                    _logger.Exception("OnPlayerReady", ex);
+                }
+            });
         }
 
         public void OnUpdateXpAndMoney(int netId, int addedXp, int addedMoney)
@@ -262,28 +270,37 @@ namespace GGSQL
             }
         }
 
-        // TODO
         private async Task FlushTick()
         {
             try
             {
                 await Delay(60000 * 60 * _flushHours);
 
-                ConcurrentQueue<User> usersToKeep = new ConcurrentQueue<User>();
+                if (_cachedUsers.Count == 0) return;
+
+                var success = await _mysqlDb.SaveUsers(_cachedUsers); // Lets first save users
+
+                if (!success) return;
+
+                List<User> usersToKeep = new List<User>();
 
                 foreach(var player in Players)
                 {
                     var user = _cachedUsers.FirstOrDefault(x => x.NetId == Convert.ToInt32(player.Handle));
                     if(user != null)
                     {
-                        usersToKeep.Enqueue(user);
+                        usersToKeep.Add(user);
                     }
                 }
-                _cachedUsers = usersToKeep;
+
+                if(usersToKeep.Count > 0)
+                    _cachedUsers = usersToKeep;
+
+                _logger.Info($"Flush complete. Kept {usersToKeep.Count} Users in Cache.");
             }
             catch (Exception e)
             {
-                _logger.Exception("SaveTick", e);
+                _logger.Exception("FlushTick", e);
             }
         }
 
@@ -296,7 +313,7 @@ namespace GGSQL
                 var count = 0;
                 foreach (var syncUser in parsed)
                 {
-                    var user = _cachedUsers.SingleOrDefault(x => x.NetId == syncUser.NetId && x.Id == syncUser.Id);
+                    var user = _cachedUsers.FirstOrDefault(x => x.NetId == syncUser.NetId && x.Id == syncUser.Id);
 
                     if (user == null)
                     {

@@ -213,7 +213,7 @@ namespace GGSQL
             }
         }
 
-        public async Task<bool> SaveUsers(ConcurrentQueue<User> users)
+        public async Task<bool> SaveUsers(List<User> users)
         {
             string sql = @"";
 
