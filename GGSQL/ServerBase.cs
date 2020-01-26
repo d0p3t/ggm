@@ -1,8 +1,6 @@
 ﻿using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
 using CitizenFX.Core;
@@ -23,9 +21,6 @@ namespace GGSQL
 
         private List<User> _cachedUsers;
         private List<Connection> _cachedConnections;
-        //private List<Ban> _cachedBans;
-
-        //private List<BanLog> _cachedTempBans;
 
         protected MySqlDatabase _mysqlDb
         {
@@ -47,75 +42,18 @@ namespace GGSQL
 
             _cachedUsers = new List<User>();
             _cachedConnections = new List<Connection>();
-            //_cachedTempBans = new List<BanLog>();
 
             _logger = new ServerLogger("GGSQL", LogLevel.Info);
 
             EventHandlers["onServerResourceStart"] += new Action<string>(BaseOnServerResourceStart);
-            EventHandlers["playerDropped"] += new Action<Player, string>(OnPlayerDropped);
             EventHandlers["playerReady"] += new Action<Player>(OnPlayerReady);
             EventHandlers["gg_internal:updateXpMoney"] += new Action<int, int, int>(OnUpdateXpAndMoney);
-            EventHandlers["gg_internal:userSync"] += new Action<string>(OnUserSync);
-            // EventHandlers["gg_internal:TempLogBan"] += new Action<string, string>(OnTempLogBan);
-
-            // Exports.Add("gg_internal:checkIsBanned", new Func<string, string, string, string, string, string, dynamic>((license, steam, xbl, live, discord, fivem) => OnCheckBan(license, steam, xbl, live, discord, fivem)));
+            EventHandlers["gg_internal:syncUsers"] += new Action<string>(OnUsersSync);
+            EventHandlers["gg_internal:syncUser"] += new Action<string>(OnUserSync);
 
             Tick += SaveTick;
             Tick += FlushTick;
         }
-
-        //public void OnTempLogBan(string name, string reason)
-        //{
-        //    var banLog = new BanLog(name, reason);
-        //    _cachedTempBans.Add(banLog);
-        //}
-
-        //public dynamic OnCheckBan(string license, string steam, string xbl, string live, string discord, string fivem)
-        //{
-        //    List<Ban> toRemove = new List<Ban>();
-
-        //    foreach (var ban in _cachedBans)
-        //    {
-        //        if(DateTime.UtcNow > ban.EndDate)
-        //        {
-        //            toRemove.Add(ban);
-        //            continue;
-        //        }
-
-        //        if(ban.LicenseId == license || ban.SteamId == steam || ban.XblId == xbl || ban.LiveId == live || ban.DiscordId == discord || ban.FivemId == fivem)
-        //        {
-        //            return new { IsBanned = true, Reason = ban.Reason };
-        //        }
-        //    }
-
-        //    return new { IsBanned = false, Reason = "" };
-        //}
-
-        public async Task<dynamic> CheckBan(string netId)
-        {
-            var player = Players.FirstOrDefault(x => x.Handle == netId);
-
-            if (player == null)
-            {
-                return new { IsBanned = false};
-            }
-
-            var licenseId = player.Identifiers["license"];
-            var steamId = player.Identifiers["steam"];
-            var xblId = player.Identifiers["xbl"];
-            var liveId = player.Identifiers["live"];
-            var discordId = player.Identifiers["discord"];
-            var fivemId = player.Identifiers["fivem"];
-
-            var ban = await _mysqlDb.IsUserBanned(licenseId, steamId, xblId, liveId, discordId, fivemId);
-
-            if(ban == null)
-            {
-                return new { IsBanned = false};
-            }
-
-            return new { IsBanned = true, ban.Reason, ban.EndDate, ban.Id};
-        } 
 
         public async void BaseOnServerResourceStart(string resourceName)
         {
@@ -130,30 +68,6 @@ namespace GGSQL
             stopWatch.Stop();
 
             _logger.Info($"[DB] Connection established in {stopWatch.ElapsedMilliseconds}ms");
-        }
-
-        public async void OnPlayerDropped([FromSource]Player player, string reason)
-        {
-            var playerName = player.Name;
-            var playerHandle = player.Handle;
-
-            var droppedUser = _cachedUsers.FirstOrDefault(x => x.NetId == Convert.ToInt32(playerHandle));
-
-            var success = false;
-
-            if (droppedUser != null)
-            {
-                success = await _mysqlDb.SaveUser(droppedUser);
-
-                var droppedConnection = _cachedConnections.FirstOrDefault(c => c.UserId == droppedUser.Id);
-                if (droppedConnection != null)
-                {
-                    success = await _mysqlDb.UpdateConnection(droppedConnection);
-                    _cachedConnections.Remove(droppedConnection);
-                }
-            }
-
-            _logger.Info($"{playerName} left (Reason: {reason}) - Saving profile was {(success ? "Successful" : "Unsuccessful")}");
         }
 
         public async void OnPlayerReady([FromSource]Player player)
@@ -302,7 +216,7 @@ namespace GGSQL
             }
         }
 
-        private void OnUserSync(string data)
+        private void OnUsersSync(string data)
         {
             try
             {
@@ -332,7 +246,39 @@ namespace GGSQL
             {
                 _logger.Exception("OnUserSync", e);
             }
+        }
 
+        private async void OnUserSync(string data)
+        {
+            try
+            {
+                var parsed = JsonConvert.DeserializeObject<SyncUser>(data);
+
+                var user = _cachedUsers.FirstOrDefault(x => x.NetId == parsed.NetId && x.Id == parsed.Id);
+
+                if(user != null)
+                {
+                    user.Kills = parsed.Kills;
+                    user.Deaths = parsed.Deaths;
+                    user.Xp = parsed.Xp;
+                    user.Money = parsed.Money;
+
+                    var success = await _mysqlDb.SaveUser(user);
+
+                    var droppedConnection = _cachedConnections.FirstOrDefault(c => c.UserId == user.Id);
+                    if (droppedConnection != null)
+                    {
+                        success = await _mysqlDb.UpdateConnection(droppedConnection);
+                        _cachedConnections.Remove(droppedConnection);
+                    }
+
+                    _logger.Info($"Saving profile was {(success ? "Successful" : "Unsuccessful")}");
+                }
+            }
+            catch (Exception e)
+            {
+                _logger.Exception("OnUserSync", e);
+            }
         }
     }
 }
