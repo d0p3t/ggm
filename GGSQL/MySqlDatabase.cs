@@ -49,7 +49,9 @@ namespace GGSQL
                             Deaths AS `Deaths`,
                             Xp AS `Xp`,
                             Money AS `Money`,
-                            LastConnected AS `LastConnected`
+                            LastConnected AS `LastConnected`,
+                            Donator AS `Donator`,
+                            Moderator AS `Moderator`
                         FROM
 	                        users
                         WHERE

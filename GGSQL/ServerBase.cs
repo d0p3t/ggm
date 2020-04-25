@@ -6,6 +6,7 @@ using Newtonsoft.Json;
 using CitizenFX.Core;
 using CitizenFX.Core.Native;
 using GGSQL.Models;
+using GGSQL.Models.Styles;
 
 namespace GGSQL
 {
@@ -49,7 +50,7 @@ namespace GGSQL
             EventHandlers["playerReady"] += new Action<Player>(OnPlayerReady);
             EventHandlers["gg_internal:updateXpMoney"] += new Action<int, int, int>(OnUpdateXpAndMoney);
             EventHandlers["gg_internal:syncUsers"] += new Action<string>(OnUsersSync);
-            EventHandlers["gg_internal:syncUser"] += new Action<string>(OnUserSync);
+            EventHandlers["gg_internal:syncUser"] += new Action<string, string>(OnUserSync);
 
             Tick += SaveTick;
             Tick += FlushTick;
@@ -75,11 +76,6 @@ namespace GGSQL
             try
             {
                 var licenseId = player.Identifiers["license"];
-                var steamId = player.Identifiers["steam"];
-                var xblId = player.Identifiers["xbl"];
-                var liveId = player.Identifiers["live"];
-                var discordId = player.Identifiers["discord"];
-                var fivemId = player.Identifiers["fivem"];
 
                 // 1. Check for cached user
                 User user = null;
@@ -105,7 +101,6 @@ namespace GGSQL
                         {
                             player.Drop("Failed to load your profile, please try again. Contact an Administrator after 5 failed tries.");
                             _logger.Info($"Failed to load profile for {player.Name} (IP: {player.EndPoint})");
-                            API.CancelEvent();
                             return;
                         }
                     }
@@ -115,21 +110,74 @@ namespace GGSQL
                     _cachedUsers.Add(user);
                 }
 
-                _logger.Info($"[JOIN] {player.Name} joined. (IP: {player.EndPoint})");
+                try
+                {
+                    var style = user.ClothingStyles.FirstOrDefault(cs => cs.IsActiveStyle);
+                    var changed = UpdateStyle(ref style, user.Xp);
+                }
+                catch (Exception ex)
+                {
+                    _logger.Exception("OnPlayerReady - Updating clothing style -", ex);
+                }
 
-                TriggerEvent("gg_internal:playerReady", JsonConvert.SerializeObject(user));
+                try
+                {
+                    _logger.Info($"[JOIN] {player.Name} joined. (IP: {player.EndPoint})");
 
-                var connection = _cachedConnections.FirstOrDefault(c => c.UserId == user.Id);
-                if(connection == null)
-                    connection = new Connection(user.Id, user.Endpoint);
+                    TriggerEvent("gg_internal:playerReady", JsonConvert.SerializeObject(user));
 
-                var conn = await _mysqlDb.InsertConnection(connection);
-                if(conn != null)
-                    _cachedConnections.Add(conn);
+                    if (user.Donator)
+                    {
+                        await Delay(0);
+
+                        var style = new ClothingStyle(3);
+                        var components = new List<PedComponent>
+                            {
+                                /// halo
+                                new PedComponent(1, 28, 4, 2), // Head
+                                new PedComponent(3, 18, 4, 2), // Torso
+                                new PedComponent(4, 31, 4, 2), // Legs
+                                new PedComponent(6, 24, 0, 2), // Feet
+                                new PedComponent(8, 15, 0, 2), // Accessoires
+                                new PedComponent(11, 49, 4, 2) // Torso2
+
+                                // old pilot
+                                //new PedComponent(1, 27, 0, 0), // Head
+                                //new PedComponent(3, 16, 0, 0), // Torso
+                                //new PedComponent(4, 8, 0, 0), // Legs
+                                //new PedComponent(6, 27, 0, 0), // Feet
+                                //new PedComponent(8, 15, 0, 0), // Accessoires
+                                //new PedComponent(11, 48, 0, 0) // Torso2
+                            };
+
+                        style.PedComponents = components;
+                        player.TriggerEvent("setActiveStyle", JsonConvert.SerializeObject(style));
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.Exception("OnPlayerReady - Sending playerReady -", ex);
+                }
+
+                try
+                {
+                    var connection = _cachedConnections.FirstOrDefault(c => c.UserId == user.Id);
+                    if (connection == null)
+                        connection = new Connection(user.Id, user.Endpoint);
+
+                    var conn = await _mysqlDb.InsertConnection(connection);
+                    if (conn != null)
+                        _cachedConnections.Add(conn);
+                }
+                catch (Exception ex)
+                {
+                    _logger.Exception("OnPlayerReady - Adding new connection -", ex);
+                }
+
             }
             catch (Exception ex)
             {
-                _logger.Exception("OnPlayerReady", ex);
+                _logger.Exception("OnPlayerReady - Other -", ex);
             }
         }
 
@@ -225,17 +273,38 @@ namespace GGSQL
                 var count = 0;
                 foreach (var syncUser in parsed)
                 {
-                    var user = _cachedUsers.FirstOrDefault(x => x.NetId == syncUser.NetId && x.Id == syncUser.Id);
-
-                    if (user == null)
+                    try
                     {
-                        continue;
-                    }
+                        var user = _cachedUsers.FirstOrDefault(x => x.NetId == syncUser.NetId && x.Id == syncUser.Id);
 
-                    user.Kills = syncUser.Kills;
-                    user.Deaths = syncUser.Deaths;
-                    user.Xp = syncUser.Xp;
-                    user.Money = syncUser.Money;
+                        if (user == null)
+                        {
+                            continue;
+                        }
+
+                        user.Kills = syncUser.Kills;
+                        user.Deaths = syncUser.Deaths;
+                        user.Xp = syncUser.Xp;
+                        user.Money = syncUser.Money;
+
+                        if (!user.Donator)
+                        {
+                            var style = user.ClothingStyles.FirstOrDefault(cs => cs.IsActiveStyle);
+                            var compfour = style.PedComponents.FirstOrDefault(p => p.ComponentId == 4);
+                            var changed = UpdateStyle(ref style, user.Xp);
+                            if (changed)
+                            {
+                                if (compfour.DrawableId != style.PedComponents.First(p => p.ComponentId == 4).DrawableId)
+                                {
+                                    if (Players[syncUser.NetId] != null)
+                                    {
+                                        Players[syncUser.NetId].TriggerEvent("setActiveStyle", JsonConvert.SerializeObject(style));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    catch { }
 
                     count++;
                 }
@@ -244,11 +313,11 @@ namespace GGSQL
             }
             catch (Exception e)
             {
-                _logger.Exception("OnUserSync", e);
+                _logger.Exception("OnUsersSync", e);
             }
         }
 
-        private async void OnUserSync(string data)
+        private async void OnUserSync(string data, string name)
         {
             try
             {
@@ -272,13 +341,170 @@ namespace GGSQL
                         _cachedConnections.Remove(droppedConnection);
                     }
 
-                    _logger.Info($"Saving profile was {(success ? "Successful" : "Unsuccessful")}");
+                    _logger.Info($"Saving profile of {name} was {(success ? "Successful" : "Unsuccessful")}");
                 }
             }
             catch (Exception e)
             {
                 _logger.Exception("OnUserSync", e);
             }
+        }
+
+        private bool UpdateStyle(ref ClothingStyle style, int xp)
+        {
+            List<PedComponent> components = new List<PedComponent>();
+
+            //PedComponent zero = null;
+            PedComponent one = null;
+            //PedComponent two = null;
+            PedComponent three = null;
+            PedComponent four = null;
+            //PedComponent five = null;
+            PedComponent six = null;
+            PedComponent seven = null;
+            PedComponent eight = null;
+            PedComponent nine = null;
+            PedComponent ten = null;
+            PedComponent eleven = null;
+            bool changed = false;
+
+            if (xp >= 8090) // level 10
+            {
+                // 1318 very much the same
+                //zero = new PedComponent(0, -1, -1, 0);
+                one = new PedComponent(1, 57, 0, 0);
+                //two = new PedComponent(2, -1, -1, 0);
+                three = new PedComponent(3, 41, 0, 0);
+                four = new PedComponent(4, 97, 18, 0);
+                //five = new PedComponent(5, -1, -1, 0);
+                six = new PedComponent(6, 70, 18, 0);
+                seven = new PedComponent(7, 0, 0, 0);
+                eight = new PedComponent(8, 15, 0, 0);
+                nine = new PedComponent(9, 0, 0, 0);
+                ten = new PedComponent(10, 0, 0, 0);
+                eleven = new PedComponent(11, 251, 18, 0);
+                changed = true;
+
+                if (xp >= 50562) // level 25
+                {
+                    // 1317
+                    //zero = new PedComponent(0, -1, -1, 0);
+                    one = new PedComponent(1, 57, 0, 0);
+                    //two = new PedComponent(2, -1, -1, 0);
+                    three = new PedComponent(3, 41, 0, 0);
+                    four = new PedComponent(4, 97, 0, 0);
+                    //five = new PedComponent(5, -1, -1, 0);
+                    six = new PedComponent(6, 70, 0, 0);
+                    seven = new PedComponent(7, 0, 0, 0);
+                    eight = new PedComponent(8, 15, 0, 0);
+                    nine = new PedComponent(9, 0, 0, 0);
+                    ten = new PedComponent(10, 0, 0, 0);
+                    eleven = new PedComponent(11, 253, 0, 0);
+
+                    if (xp >= 202250) // level 50
+                    {
+                        // 1320
+                        //zero = new PedComponent(0, -1, -1, 0);
+                        one = new PedComponent(1, 57, 0, 0);
+                        //two = new PedComponent(2, -1, -1, 0);
+                        three = new PedComponent(3, 41, 0, 0);
+                        four = new PedComponent(4, 98, 6, 0);
+                        //five = new PedComponent(5, -1, -1, 0);
+                        six = new PedComponent(6, 71, 14, 0);
+                        seven = new PedComponent(7, 0, 0, 0);
+                        eight = new PedComponent(8, 15, 0, 0);
+                        nine = new PedComponent(9, 0, 0, 0);
+                        ten = new PedComponent(10, 0, 0, 0);
+                        eleven = new PedComponent(11, 253, 6, 0);
+
+                        if (xp >= 455062) // level 75
+                        {
+                            // hazmat suit yellow
+                            //zero = new PedComponent(0, -1, -1, 0);
+                            one = new PedComponent(1, 46, 0, 0);
+                            //two = new PedComponent(2, -1, -1, 0);
+                            three = new PedComponent(3, 88, 0, 0);
+                            four = new PedComponent(4, 40, 2, 0);
+                            //five = new PedComponent(5, -1, -1, 0);
+                            six = new PedComponent(6, 25, 0, 0);
+                            seven = new PedComponent(7, 0, 0, 0);
+                            eight = new PedComponent(8, 62, 2, 0);
+                            nine = new PedComponent(9, 0, 0, 0);
+                            ten = new PedComponent(10, 0, 0, 0);
+                            eleven = new PedComponent(11, 67, 2, 0);
+
+                            if (xp >= 809000) // level 100
+                            {
+                                // black suit tie
+                                //zero = new PedComponent(0, -1, -1, 0);
+                                one = new PedComponent(1, 0, 0, 0);
+                                //two = new PedComponent(2, -1, -1, 0);
+                                three = new PedComponent(3, 33, 0, 0);
+                                four = new PedComponent(4, 24, 0, 0);
+                                //five = new PedComponent(5, -1, -1, 0);
+                                six = new PedComponent(6, 10, 0, 0);
+                                seven = new PedComponent(7, 28, 15, 0);
+                                eight = new PedComponent(8, 31, 0, 0);
+                                nine = new PedComponent(9, 0, 0, 0);
+                                ten = new PedComponent(10, 0, 0, 0);
+                                eleven = new PedComponent(11, 32, 0, 0);
+
+                                if(xp >= 1820250) // level 150
+                                {
+                                    // white suit
+                                    //zero = new PedComponent(0, -1, -1, 0);
+                                    one = new PedComponent(1, 0, 0, 0);
+                                    //two = new PedComponent(2, -1, -1, 0);
+                                    three = new PedComponent(3, 4, 0, 0);
+                                    four = new PedComponent(4, 24, 0, 0);
+                                    //five = new PedComponent(5, -1, -1, 0);
+                                    six = new PedComponent(6, 10, 0, 0);
+                                    seven = new PedComponent(7, 11, 2, 0);
+                                    eight = new PedComponent(8, 31, 0, 0);
+                                    nine = new PedComponent(9, 0, 0, 0);
+                                    ten = new PedComponent(10, 0, 0, 0);
+                                    eleven = new PedComponent(11, 30, 5, 0);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (changed)
+            {
+                //components.Add(zero); // always -1 -1
+                components.Add(one);
+                //components.Add(two); // always -1 -1
+                components.Add(three);
+                components.Add(four);
+                //components.Add(five); // always -1 -1
+                components.Add(six);
+                components.Add(seven);
+                components.Add(eight);
+                components.Add(nine);
+                components.Add(ten);
+                components.Add(eleven);
+
+                style.PedComponents = components;
+            }
+
+
+            return changed;
+
+            // default components
+            //zero = new PedComponent(0, -1, -1, 0);
+            //one = new PedComponent(1, 57, 0, 0);
+            //two = new PedComponent(2, -1, -1, 0);
+            //three = new PedComponent(3, 41, 0, 0);
+            //four = new PedComponent(4, 98, 13, 0);
+            //five = new PedComponent(5, -1, -1, 0);
+            //six = new PedComponent(6, 71, 13, 0);
+            //seven = new PedComponent(7, 0, 0, 0);
+            //eight = new PedComponent(8, 15, 0, 0);
+            //nine = new PedComponent(9, 0, 0, 0);
+            //ten = new PedComponent(10, 0, 0, 0);
+            //eleven = new PedComponent(11, 251, 13, 0);
         }
     }
 }

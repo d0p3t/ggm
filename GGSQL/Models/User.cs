@@ -37,5 +37,8 @@ namespace GGSQL.Models
         public List<WeaponStyle> WeaponStyles { get; set; } = new List<WeaponStyle>();
 
         public string PedComponent { get; set; }
+
+        public bool Donator { get; set; } = false;
+        public bool Moderator { get; set; } = false;
     }
 }
