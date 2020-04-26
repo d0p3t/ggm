@@ -71,6 +71,7 @@
     <Compile Include="Models\Ban.cs" />
     <Compile Include="Models\ClothingStyle.cs" />
     <Compile Include="Models\Connection.cs" />
+    <Compile Include="Models\GameRound.cs" />
     <Compile Include="Models\Style.cs" />
     <Compile Include="Models\Styles\PedComponent.cs" />
     <Compile Include="Models\SyncUser.cs" />

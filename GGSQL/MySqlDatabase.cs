@@ -313,5 +313,27 @@ namespace GGSQL
                 return new List<Ban>();
             }
         }
+
+        public async Task<GameRound> InsertGameRound(GameRound gameRound)
+        {
+            var sql = @"INSERT INTO gamerounds
+                            (startTime, endTime, mapName, 
+                                winnerUserId, winnerRoundKills, winnerRoundDeaths)
+                        VALUES
+                            (@st, @et,@mn, @wuid, @wrk,@wrd);
+                        SELECT LAST_INSERT_ID();";
+
+            using (var conn = new MySqlConnection(_connectionString))
+            {
+                var dbResult = await conn.ExecuteScalarAsync<int>(sql, new 
+                {   st = gameRound.StartTime, et = gameRound.EndTime, 
+                    mn = gameRound.MapName,  wuid = gameRound.WinnerUserId,
+                    wrk = gameRound.WinnerRoundKills, wrd = gameRound.WinnerRoundDeaths  
+                });
+
+                gameRound.Id = dbResult;
+                return gameRound;
+            }
+        }
     }
 }

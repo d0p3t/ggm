@@ -51,6 +51,7 @@ namespace GGSQL
             EventHandlers["gg_internal:updateXpMoney"] += new Action<int, int, int>(OnUpdateXpAndMoney);
             EventHandlers["gg_internal:syncUsers"] += new Action<string>(OnUsersSync);
             EventHandlers["gg_internal:syncUser"] += new Action<string, string>(OnUserSync);
+            EventHandlers["gg_internal:syncWinner"] += new Action<string>(OnWinnerSync);
 
             Tick += SaveTick;
             Tick += FlushTick;
@@ -343,6 +344,22 @@ namespace GGSQL
 
                     _logger.Info($"Saving profile of {name} was {(success ? "Successful" : "Unsuccessful")}");
                 }
+            }
+            catch (Exception e)
+            {
+                _logger.Exception("OnUserSync", e);
+            }
+        }
+
+        private async void OnWinnerSync(string data)
+        {
+            try
+            {
+                var parsed = JsonConvert.DeserializeObject<GameRound>(data);
+
+                var gameRound = await _mysqlDb.InsertGameRound(parsed);
+
+                _logger.Info($"[GAME] Round saved. Winner had [{gameRound.WinnerRoundKills}] kills and [{gameRound.WinnerRoundDeaths}] deaths.");
             }
             catch (Exception e)
             {
