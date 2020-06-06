@@ -7,30 +7,62 @@ using Dapper;
 using MySql.Data.MySqlClient;
 using Newtonsoft.Json;
 using CitizenFX.Core;
+using static CitizenFX.Core.Native.API;
 using GGSQL.Models;
+using GGSQL.Models.Styles;
 
 namespace GGSQL
 {
     public class MySqlDatabase
     {
-        private string _connectionString;
-        private bool _debug;
-        private readonly CustomTaskScheduler _scheduler;
+        // private static ConcurrentQueue<Action> m_callbackQueue;
 
-        public MySqlDatabase(string connectionString, bool debug = false)
+        private static string m_connectionString;
+        private static bool _debug;
+        private static bool m_initialized;
+        private static ServerLogger m_logger;
+
+        //private readonly CustomTaskScheduler _scheduler;
+
+        private class DbConnection : IDisposable
         {
-            _connectionString = connectionString;
+            public readonly MySqlConnection Connection;
+
+            public DbConnection(string connectionString)
+            {
+                Connection = new MySqlConnection(connectionString);
+            }
+
+            public void Dispose()
+            {
+                Connection.Close();
+            }
+        }
+
+        internal MySqlDatabase(string connectionString, bool debug = false, ServerLogger logger = null)
+        {
+
+            // m_callbackQueue = new ConcurrentQueue<Action>();
+
+            // Tick += OnTick;
+
+            m_connectionString = connectionString;
             _debug = debug;
-            _scheduler = new CustomTaskScheduler();
+            //_scheduler = new CustomTaskScheduler();
+            m_logger = logger;
+
+            SqlMapper.AddTypeHandler(typeof(List<PedComponent>), new JsonTypeHandler());
+            SqlMapper.AddTypeHandler(typeof(List<ClothingStyle>), new JsonTypeHandler());
         }
 
         public async Task DummyQuery()
         {
             var sql = "SELECT VERSION();";
 
-            using (var conn = new MySqlConnection(_connectionString))
+            using (var db = new DbConnection(m_connectionString))
             {
-                await conn.QuerySingleAsync(sql);
+                await db.Connection.QuerySingleAsync(sql);
+
             }
         }
 
@@ -50,26 +82,12 @@ namespace GGSQL
                             Xp AS `Xp`,
                             Money AS `Money`,
                             LastConnected AS `LastConnected`,
+                            ClothingStyles AS `ClothingStyles`,
                             Donator AS `Donator`,
-                            Moderator AS `Moderator`
+                            Moderator AS `Moderator`,
+                            UserOutfits AS `UserOutfits`
                         FROM
 	                        users
-                        WHERE
-                            licenseId = @lid
-                        OR
-	                        (steamId IS NOT NULL AND steamId = @sid)
-                        OR 
-                            (xblId IS NOT NULL AND xblId = @xid)
-                        OR 
-                            (liveId IS NOT NULL AND liveId = @liveid)
-                        OR 
-                            (discordId IS NOT NULL AND discordId = @did)
-                        OR 
-                            (fivemId IS NOT NULL AND fivemId = @fid);
-                        SELECT
-                            ClothingStyles AS `ClothingStyles`
-                        FROM
-                            users
                         WHERE
                             licenseId = @lid
                         OR
@@ -90,32 +108,16 @@ namespace GGSQL
             var discordId = player.Identifiers["discord"];
             var fivemId = player.Identifiers["fivem"];
 
-            using (var conn = new MySqlConnection(_connectionString))
+            using (var db = new DbConnection(m_connectionString))
             {
-                using (var multi = await conn.QueryMultipleAsync(sql, new { lid = licenseId, sid = steamId, xid = xblId, liveid = liveId, did = discordId, fid = fivemId }))
-                {
-                    var dbUser = multi.Read<User>().FirstOrDefault();
+                var dbUser = await db.Connection.QueryFirstOrDefaultAsync<User>(sql, new { lid = licenseId, sid = steamId, xid = xblId, liveid = liveId, did = discordId, fid = fivemId });
 
-                    if(dbUser == null)
-                    {
-                        return null;
-                    }
+                if (dbUser == null) return null;
 
-                    var clothingStyles = multi.Read<string>().FirstOrDefault();
-                    if (clothingStyles == null)
-                    {
-                        dbUser.ClothingStyles = new List<ClothingStyle> { new ClothingStyle(1) { IsActiveStyle = true}, new ClothingStyle(2), new ClothingStyle(3) };
-                    }
-                    else
-                    {
-                        dbUser.ClothingStyles = JsonConvert.DeserializeObject<List<ClothingStyle>>(clothingStyles);
-                    }
+                dbUser.NetId = Convert.ToInt32(player.Handle);
+                dbUser.Endpoint = player.EndPoint;
 
-                    dbUser.NetId = Convert.ToInt32(player.Handle);
-                    dbUser.Endpoint = player.EndPoint;
-
-                    return dbUser;
-                }
+                return dbUser;
             }
         }
 
@@ -131,9 +133,10 @@ namespace GGSQL
                         AND 
                             (licenseId=@lid OR steamId=@sid OR xblId=@xid OR liveId=@liveid OR discordId=@did OR fivemId=@fid);";
 
-            using (var conn = new MySqlConnection(_connectionString))
+            using (var db = new DbConnection(m_connectionString))
             {
-                var dbResult = await conn.QueryFirstOrDefaultAsync<Ban>(sql, new { t = DateTime.UtcNow, lid = licenseId, sid = steamId, xid = xblId, liveid = liveId, did = discordId, fid = fivemId });
+                var dbResult = await db.Connection.QueryFirstOrDefaultAsync<Ban>(sql, new { t = DateTime.UtcNow, lid = licenseId, sid = steamId, xid = xblId, liveid = liveId, did = discordId, fid = fivemId });
+
                 return dbResult;
             }
         }
@@ -147,16 +150,11 @@ namespace GGSQL
                         WHERE 
                             id = @uId;";
 
-            using (var conn = new MySqlConnection(_connectionString))
+            using (var db = new DbConnection(m_connectionString))
             {
-                var affectedRows = await conn.ExecuteAsync(sql, JsonConvert.SerializeObject(clothingStyles));
+                var affectedRows = await db.Connection.ExecuteAsync(sql, new { cs = clothingStyles, uId = userId });
 
-                if (affectedRows != 0)
-                {
-                    return true;
-                }
-
-                return false;
+                return affectedRows != 0 ? true : false;
             }
         }
 
@@ -178,12 +176,11 @@ namespace GGSQL
             user.FivemId = player.Identifiers["fivem"];
             user.Endpoint = player.EndPoint;
 
-            var clothingStyles = JsonConvert.SerializeObject(user.ClothingStyles);
-
-            using (var conn = new MySqlConnection(_connectionString))
+            using (var db = new DbConnection(m_connectionString))
             {
-                var dbResult = await conn.ExecuteScalarAsync<int>(sql, new { lid = user.LicenseId, sid = user.SteamId, xblid = user.XblId, liveid = user.LiveId, did = user.DiscordId, endpoint = user.Endpoint, cstyles = clothingStyles });
+                var dbResult = await db.Connection.ExecuteScalarAsync<int>(sql, new { lid = user.LicenseId, sid = user.SteamId, xblid = user.XblId, liveid = user.LiveId, did = user.DiscordId, endpoint = user.Endpoint, cstyles = user.ClothingStyles });
                 user.Id = dbResult;
+
                 return user;
             }
         }
@@ -202,10 +199,10 @@ namespace GGSQL
                         WHERE 
                             id=@userId;";
 
-            using (var conn = new MySqlConnection(_connectionString))
+            using (var db = new DbConnection(m_connectionString))
             {
                 var clothingStyles = JsonConvert.SerializeObject(user.ClothingStyles);
-                var affectedRows = await conn.ExecuteAsync(sql, new { userId = user.Id, kills = user.Kills, deaths = user.Deaths, xp = user.Xp, money = user.Money, now = DateTime.UtcNow, cstyles = clothingStyles });
+                var affectedRows = await db.Connection.ExecuteAsync(sql, new { userId = user.Id, kills = user.Kills, deaths = user.Deaths, xp = user.Xp, money = user.Money, now = DateTime.UtcNow, cstyles = clothingStyles });
                 if(affectedRows != 0)
                 {
                     return true;
@@ -235,9 +232,9 @@ namespace GGSQL
                             id={user.Id};";
             }
 
-            using(var conn = new MySqlConnection(_connectionString))
+            using(var db = new DbConnection(m_connectionString))
             {
-                var affectedRows = await conn.ExecuteAsync(sql);
+                var affectedRows = await db.Connection.ExecuteAsync(sql);
                 if(affectedRows != 0)
                 {
                     return true;
@@ -255,10 +252,11 @@ namespace GGSQL
                             (@e, @userId, @ip);
                         SELECT LAST_INSERT_ID();";
 
-            using(var conn = new MySqlConnection(_connectionString))
+            using(var db = new DbConnection(m_connectionString))
             {
-                var dbResult = await conn.ExecuteScalarAsync<int>(sql, new { e = connection.Established, userId = connection.UserId, ip = connection.EndPoint});
+                var dbResult = await db.Connection.ExecuteScalarAsync<int>(sql, new { e = connection.Established, userId = connection.UserId, ip = connection.EndPoint});
                 connection.Id = dbResult;
+
                 return connection;
             }
         }
@@ -273,14 +271,15 @@ namespace GGSQL
                         WHERE
                             id = @id;";
 
-            using (var conn = new MySqlConnection(_connectionString))
+            using (var db = new DbConnection(m_connectionString))
             {
-                var affectedRows = await conn.ExecuteAsync(sql, new { id = connection.Id, dropped = DateTime.UtcNow, totalSeconds = (DateTime.UtcNow - connection.Established).TotalSeconds});
+                var affectedRows = await db.Connection.ExecuteAsync(sql, new { id = connection.Id, dropped = DateTime.UtcNow, totalSeconds = (DateTime.UtcNow - connection.Established).TotalSeconds});
 
                 if(affectedRows != 0)
                 {
                     return true;
                 }
+
                 return false;
             }
         }
@@ -302,14 +301,15 @@ namespace GGSQL
                         WHERE
                             endDate >= @now;";
 
-            using (var conn = new MySqlConnection(_connectionString))
+            using (var db = new DbConnection(m_connectionString))
             {
-                var dbResult = await conn.QueryAsync<Ban>(sql, new { now = DateTime.UtcNow });
+                var dbResult = await db.Connection.QueryAsync<Ban>(sql, new { now = DateTime.UtcNow });
 
                 if(dbResult.Count() > 0)
                 {
                     return dbResult.ToList();
                 }
+
                 return new List<Ban>();
             }
         }
@@ -323,9 +323,9 @@ namespace GGSQL
                             (@st, @et,@mn, @wuid, @wrk,@wrd);
                         SELECT LAST_INSERT_ID();";
 
-            using (var conn = new MySqlConnection(_connectionString))
+            using (var db = new DbConnection(m_connectionString))
             {
-                var dbResult = await conn.ExecuteScalarAsync<int>(sql, new 
+                var dbResult = await db.Connection.ExecuteScalarAsync<int>(sql, new 
                 {   st = gameRound.StartTime, et = gameRound.EndTime, 
                     mn = gameRound.MapName,  wuid = gameRound.WinnerUserId,
                     wrk = gameRound.WinnerRoundKills, wrd = gameRound.WinnerRoundDeaths  
@@ -335,5 +335,226 @@ namespace GGSQL
                 return gameRound;
             }
         }
+
+        public async Task<List<Outfit>> GetOutfits()
+        {
+            var sql = @"SELECT id, name, price, requiredXp, discount, enabled, components, createdAt, updatedAt
+                            FROM outfits WHERE enabled = true";
+
+            using (var db = new DbConnection(m_connectionString))
+            {
+                var dbResult = await db.Connection.QueryAsync<Outfit>(sql);
+
+                return dbResult.ToList();
+            }
+        }
+
+        public async Task<Outfit> InsertOutfit(Outfit outfit)
+        {
+            var sql = @"INSERT INTO outfits (name, price, requiredXp, discount, enabled, components, createdAt, updatedAt)
+                            VALUES (@name, @price, @xp, @d, @e, @comp, @ca, @ua);
+                            SELECT LAST_INSERT_ID();";
+
+            using (var db = new DbConnection(m_connectionString))
+            {
+                var dbResult = await db.Connection.ExecuteScalarAsync<int>(sql, new
+                {
+                    name = outfit.Name,
+                    price = outfit.Price,
+                    xp = outfit.RequiredXp,
+                    d = outfit.Discount,
+                    e = outfit.Enabled,
+                    comp = outfit.Components,
+                    ca = outfit.CreatedAt,
+                    ua = outfit.UpdatedAt
+                });
+
+                outfit.Id = dbResult;
+                return outfit;
+            }
+        }
+
+        public async Task<List<UserOutfit>> GetUserOutfits(int userId)
+        {
+            var sql = @"SELECT uo.id, uo.user_id, uo.outfit_id, uo.created_at FROM UserOutfits uo
+                            INNER JOIN Outfits o ON uo.outfit_id = o.id WHERE ui.user_id = @userId";
+
+            using (var db = new DbConnection(m_connectionString))
+            {
+                var dbResult = await db.Connection.QueryAsync<UserOutfit>(sql, new { userId = userId });
+
+                if(dbResult.Count() > 0)
+                {
+                    return dbResult.ToList();
+                }
+
+                return new List<UserOutfit>();
+            }
+        }
+
+        public async Task<UserOutfit> InsertUserOutfit(UserOutfit userOutfit)
+        {
+            var sql = @"INSERT INTO useroutfits (userId, outfitId, createdAt)
+                            VALUES (@uid, @oid, @ca); SELECT LAST_INSERT_ID();";
+
+            using (var db = new DbConnection(m_connectionString))
+            {
+                var dbResult = await db.Connection.ExecuteScalarAsync<int>(sql, new
+                {
+                    uid = userOutfit.UserId,
+                    oid = userOutfit.OutfitId,
+                    ca = userOutfit.CreatedAt
+                });
+
+                userOutfit.Id = dbResult;
+                return userOutfit;
+            }
+        }
+
+        public async Task<int> ExecuteAsync(string query, IDictionary<string, object> parameters)
+        {
+            int numberOfUpdatedRows = 0;
+
+            try
+            {
+                using (var db = new DbConnection(m_connectionString))
+                {
+                    await db.Connection.OpenAsync();
+
+                    using (var command = db.Connection.CreateCommand())
+                    {
+                        BuildCommand(command, query, parameters);
+                        numberOfUpdatedRows = await command.ExecuteNonQueryAsync();
+                    }
+                }
+            }
+            catch (Exception ex)
+            { m_logger.Exception("ExecuteAsync", ex); }
+
+            return numberOfUpdatedRows;
+        }
+
+        public async Task<bool> TransactionAsync(IList<string> queries, IDictionary<string, object> parameters)
+        {
+            bool isSucceed = false;
+
+            try
+            {
+                using (var db = new DbConnection(m_connectionString))
+                {
+                    await db.Connection.OpenAsync();
+
+                    using (var command = db.Connection.CreateCommand())
+                    {
+                        foreach (var parameter in parameters ?? Enumerable.Empty<KeyValuePair<string, object>>())
+                            command.Parameters.AddWithValue(parameter.Key, parameter.Value);
+
+                        using (var transaction = await db.Connection.BeginTransactionAsync())
+                        {
+                            command.Transaction = transaction;
+
+                            try
+                            {
+                                foreach (var query in queries)
+                                {
+                                    command.CommandText = query;
+                                    await command.ExecuteNonQueryAsync();
+                                }
+
+                                await transaction.CommitAsync();
+                                isSucceed = true;
+                            }
+                            catch (Exception ex)
+                            {
+                                m_logger.Exception("TransactionAsync", ex);
+
+                                try
+                                { await transaction.RollbackAsync(); }
+                                catch (Exception rollbackEx)
+                                { m_logger.Exception("TransactionAsync:Rollback", rollbackEx); }
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            { m_logger.Exception("TransactionAsync", ex); }
+
+            return isSucceed;
+        }
+
+        public async Task<object> FetchScalarAsync(string query, IDictionary<string, object> parameters)
+        {
+            object result = null;
+
+            try
+            {
+                using (var db = new DbConnection(m_connectionString))
+                {
+                    await db.Connection.OpenAsync();
+
+                    using (var command = db.Connection.CreateCommand())
+                    {
+                        BuildCommand(command, query, parameters);
+                        result = await command.ExecuteScalarAsync();
+                    }
+                }
+            }
+            catch (Exception ex)
+            { m_logger.Exception("FetchScalarAsync", ex); }
+
+            return result;
+        }
+
+        public async Task<List<Dictionary<string, object>>> FetchAllAsync(string query, IDictionary<string, object> parameters)
+        {
+            var result = new List<Dictionary<string, Object>>();
+
+            try
+            {
+                using (var db = new DbConnection(m_connectionString))
+                {
+                    await db.Connection.OpenAsync();
+
+                    using (var command = db.Connection.CreateCommand())
+                    {
+                        BuildCommand(command, query, parameters);
+
+                        using (var reader = await command.ExecuteReaderAsync())
+                        {
+                            while (await reader.ReadAsync())
+                            {
+                                result.Add(Enumerable.Range(0, reader.FieldCount).ToDictionary(
+                                    i => reader.GetName(i),
+                                    i => reader.IsDBNull(i) ? null : reader.GetValue(i)
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            { m_logger.Exception("FetchAllAsync", ex); }
+
+            return result;
+        }
+
+        private static void BuildCommand(MySqlCommand command, string query, IDictionary<string, object> parameters)
+        {
+            command.CommandText = query;
+
+            foreach (var parameter in parameters ?? Enumerable.Empty<KeyValuePair<string, object>>())
+                command.Parameters.AddWithValue(parameter.Key, parameter.Value);
+        }
+
+        //private async static Task OnTick()
+        //{
+        //    while(m_callbackQueue.TryDequeue(out Action action))
+        //    {
+        //        action.Invoke();
+        //    }
+
+        //    await Task.FromResult(0);
+        //}
     }
 }

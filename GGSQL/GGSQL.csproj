@@ -67,15 +67,19 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Controllers\ShopController.cs" />
     <Compile Include="CustomTaskScheduler.cs" />
+    <Compile Include="JsonTypeHandler.cs" />
     <Compile Include="Models\Ban.cs" />
     <Compile Include="Models\ClothingStyle.cs" />
     <Compile Include="Models\Connection.cs" />
     <Compile Include="Models\GameRound.cs" />
+    <Compile Include="Models\Outfit.cs" />
     <Compile Include="Models\Style.cs" />
     <Compile Include="Models\Styles\PedComponent.cs" />
     <Compile Include="Models\SyncUser.cs" />
     <Compile Include="Models\User.cs" />
+    <Compile Include="Models\UserOutfit.cs" />
     <Compile Include="Models\WeaponStyle.cs" />
     <Compile Include="MySqlDatabase.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />

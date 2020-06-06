@@ -45,11 +45,18 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Extensions\ExpandoObjectExtensions.cs" />
+    <Compile Include="IPlayer.cs" />
+    <Compile Include="Models\Config.cs" />
+    <Compile Include="Models\PriorityPlayer.cs" />
+    <Compile Include="Models\QueuePlayer.cs" />
+    <Compile Include="Models\QueueStatus.cs" />
     <Compile Include="Queue.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
   </ItemGroup>
+  <ItemGroup />
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

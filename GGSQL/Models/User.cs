@@ -40,5 +40,7 @@ namespace GGSQL.Models
 
         public bool Donator { get; set; } = false;
         public bool Moderator { get; set; } = false;
+
+        public ICollection<UserOutfit> UserOutfits { get; set; }
     }
 }

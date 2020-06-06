@@ -2,501 +2,195 @@
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
+using System.Dynamic;
 using System.Threading.Tasks;
 using CitizenFX.Core;
 using static CitizenFX.Core.Native.API;
+using GGQ.Models;
 
 namespace GGQ.Server
 {
     public class Queue : BaseScript
     {
-        internal static string resourceName = GetCurrentResourceName();
-        internal static string resourcePath = $"resources/{GetResourcePath(resourceName).Substring(GetResourcePath(resourceName).LastIndexOf("//") + 2)}";
-        private ConcurrentQueue<string> queue = new ConcurrentQueue<string>();
-        private ConcurrentQueue<string> newQueue = new ConcurrentQueue<string>();
-        private ConcurrentQueue<string> pQueue = new ConcurrentQueue<string>();
-        private ConcurrentQueue<string> newPQueue = new ConcurrentQueue<string>();
-        private ConcurrentDictionary<string, SessionState> session = new ConcurrentDictionary<string, SessionState>();
-        private ConcurrentDictionary<string, int> index = new ConcurrentDictionary<string, int>();
-        private ConcurrentDictionary<string, DateTime> timer = new ConcurrentDictionary<string, DateTime>();
-        private ConcurrentDictionary<string, Player> sentLoading = new ConcurrentDictionary<string, Player>();
-        internal static ConcurrentDictionary<string, int> priority = new ConcurrentDictionary<string, int>();
-        internal static ConcurrentDictionary<string, Reserved> reserved = new ConcurrentDictionary<string, Reserved>();
-        internal static ConcurrentDictionary<string, Reserved> slotTaken = new ConcurrentDictionary<string, Reserved>();
-        private string allowedChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 ~`!@#$%&*()_-+={[}]|:;<,>.?/\\";
+        public List<QueuePlayer> m_queue = new List<QueuePlayer>();
+        private Config m_config = new Config(); // for now
 
-        private bool allowSymbols = true;
-        private int maxSession = 32;
-        private double queueGraceTime = 2;
-        private double graceTime = 3;
-        private int inQueue = 0;
-        private int inPriorityQueue = 0;
-        private string originalHostName = string.Empty;
-        private int lastCount = 0;
-        private bool serverQueueReady = false;
-        private bool stateChangeMessages = false;
+        public Queue() { }
 
-        public Queue()
+        [Tick]
+        public async Task ProcessQueue()
         {
-
-        }
-
-        [EventHandler("onResourceStart")]
-        public void OnResourceStart(string resourceName)
-        {
-            if (GetCurrentResourceName() != resourceName)
+            try
             {
-                return;
+                foreach (QueuePlayer queuePlayer in m_queue.Where(p => p.Status != QueueStatus.Connecting).ToList())
+                {
+                    // Let in player if first in queue and server has a slot
+                    if (m_queue.IndexOf(queuePlayer) == 0 && this.Players.Count() < m_config.MaxClients)
+                    {
+                        ((CallbackDelegate)queuePlayer.Deferrals?.ToList()[1].Value)?.Invoke();
+                        queuePlayer.Status = QueueStatus.Connecting;
+                        queuePlayer.ConnectTime = DateTime.UtcNow;
+                        Log($"Letting in player: {queuePlayer.Name}");
+                        continue;
+                    }
+                    // Defer the player until there is a slot available and they're first in queue.
+                    if (queuePlayer.Status != QueueStatus.Queued) continue;
+                    ((CallbackDelegate)queuePlayer.Deferrals.ToList()[2].Value)(
+                        $"[{m_queue.IndexOf(queuePlayer) + 1}/{m_queue.Count}] In queue to connect.{queuePlayer.Dots}");
+                    queuePlayer.Dots = new string('.', (queuePlayer.Dots.Length + 1) % 3);
+                }
+                // Remove players who have been disconnected longer than the grace period
+                foreach (QueuePlayer queuePlayer in m_queue.Where(p => p.Status == QueueStatus.Disconnected && DateTime.UtcNow.Subtract(p.DisconnectTime).TotalSeconds > m_config.DisconnectGrace).ToList())
+                {
+                    Log($"Disconnect grace expired for player: {queuePlayer.Name}  {queuePlayer.SteamId}");
+                    m_queue.Remove(queuePlayer);
+                }
+                // Remove players who have been connecting longer than the connect timeout
+                foreach (QueuePlayer queuePlayer in m_queue.Where(p => p.Status == QueueStatus.Connecting && DateTime.UtcNow.Subtract(p.ConnectTime).TotalSeconds > m_config.ConnectionTimeout).ToList())
+                {
+                    Log($"Connect timeout expired for player: {queuePlayer.Name}  {queuePlayer.SteamId}");
+                    m_queue.Remove(queuePlayer);
+                }
+                // Remove players who have timed out
+                foreach (QueuePlayer queuePlayer in m_queue.Where(p => p.Status != QueueStatus.Disconnected && GetPlayerLastMsg(p.Handle.ToString()) > TimeSpan.FromSeconds(m_config.ConnectionTimeout).TotalMilliseconds).ToList())
+                {
+                    OnPlayerDisconnect(m_queue.First(p => p.SteamId == queuePlayer.SteamId), "Timed out");
+                }
+                // Update the servername
+                SetConvar("sv_hostname", m_queue.Count > 0 ? $"[Q: {m_queue.Count}] {m_config.HostName}" : m_config.HostName);
+            }
+            catch (Exception e)
+            {
+                Log(e.Message);
+                Log(e.InnerException?.Message);
+                Log(e.StackTrace);
             }
 
-            originalHostName = GetConvar("sv_hostname", string.Empty);
-            maxSession = GetConvarInt("sv_maxclients", 32);
-            stateChangeMessages = GetConvar("ggq_debug", "true") == "true";
-
-            serverQueueReady = true;
-
-            Debug.WriteLine("[GGQ] ^2Server queue ready^7");
-        }
-
-        [EventHandler("onResourceStop")]
-        public void OnResourceStop(string resourceName)
-        {
-            if(GetCurrentResourceName() != resourceName)
-            {
-                return;
-            }
-
-            if(originalHostName != string.Empty)
-            {
-                SetConvar("sv_hostname", originalHostName);
-            }
+            await Delay(m_config.DeferralDelay);
         }
 
         [EventHandler("playerConnecting")]
-        public async void OnPlayerConnecting([FromSource]Player source, string playerName, dynamic kickReason, dynamic deferrals)
+        public void OnPlayerConnecting([FromSource] Player player, string name, CallbackDelegate kickReason, ExpandoObject deferrals)
         {
             try
             {
-                deferrals.defer();
-                await Delay(500);
-                while (!IsEverythingReady()) { await Delay(0); }
-                deferrals.update("Connecting you to Gun Game");
-                string license = source.Identifiers["license"];
-                if (license == null) { deferrals.done("Could not find your license identifier."); return; }
+                Log($"Connecting: {player.Name}  {player.Identifiers["license"]}");
+                // Check if in queue
+                QueuePlayer queuePlayer = m_queue.FirstOrDefault(p => p.LicenseId == player.Identifiers["license"]);
 
-                if (!allowSymbols && !ValidName(playerName)) { deferrals.done("No symbols or consecutive spaces are allowed in your name"); return; }
-
-                bool banned = false;
-                string reason = string.Empty;
-                DateTime endDate = DateTime.UtcNow;
-                int id = 0;
-
-                //dynamic banInfo = Exports["ggsql"].CheckBanned(source.Handle);
-
-                //if(banInfo != null && banInfo.IsBanned)
-                //{
-                //    banned = true;
-                //    reason = banInfo.Reason;
-                //    endDate = banInfo.EndDate;
-                //    id = banInfo.Id;
-                //}
-
-                if (banned)
+                if (queuePlayer != null)
                 {
-                    deferrals.done($"You're banned. \n\nUntil: {endDate.ToLongDateString()} {endDate.ToLongTimeString()}\nReason: {reason}\nID: {id}");
-                    RemoveFrom(license, true, true, true, true, true, true);
+                    // Player had a slot in the queue, give them it back.
+                    Log($"Player found in queue: {queuePlayer.Name}");
+                    queuePlayer.Handle = int.Parse(player.Handle);
+                    queuePlayer.Status = QueueStatus.Queued;
+                    queuePlayer.ConnectTime = new DateTime();
+                    queuePlayer.JoinCount++;
+                    queuePlayer.Deferrals = deferrals;
+
+                    ((CallbackDelegate)queuePlayer.Deferrals.ToList()[0].Value)();
+                    ((CallbackDelegate)queuePlayer.Deferrals.ToList()[2].Value)("Connecting");
+
                     return;
                 }
 
-                if (sentLoading.ContainsKey(license))
-                {
-                    sentLoading.TryRemove(license, out Player oldPlayer);
-                }
-                sentLoading.TryAdd(license, source);
+                // Slot available, don't bother with the queue.
+                if (this.Players.Count() < m_config.MaxClients && !m_config.QueueWhenNotFull) return;
 
-                if (session.TryAdd(license, SessionState.Queue))
-                {
-                    if (!priority.ContainsKey(license))
-                    {
-                        newQueue.Enqueue(license);
-                        if (stateChangeMessages) { Debug.WriteLine($"[GGQ]: NEW -> QUEUE -> (Public) {license}"); }
-                    }
-                    else
-                    {
-                        newPQueue.Enqueue(license);
-                        if (stateChangeMessages) { Debug.WriteLine($"[GGQ]: NEW -> QUEUE -> (Priority) {license}"); }
-                    }
-                }
+                var licenseId = player.Identifiers["license"];
+                var steamId = player.Identifiers["steam"];
+                var xblId = player.Identifiers["xbl"];
+                var liveId = player.Identifiers["live"];
+                var discordId = player.Identifiers["discord"];
+                var fivemId = player.Identifiers["fivem"];
 
-                if (!session[license].Equals(SessionState.Queue))
-                {
-                    UpdateTimer(license);
-                    session.TryGetValue(license, out SessionState oldState);
-                    session.TryUpdate(license, SessionState.Loading, oldState);
-                    deferrals.done();
-                    if (stateChangeMessages) { Debug.WriteLine($"[GGQ]: {Enum.GetName(typeof(SessionState), oldState).ToUpper()} -> LOADING -> (Grace) {license}"); }
-                    return;
-                }
+                // Check if the player is in the priority list
+                // NEEDS REWORK
+                PriorityPlayer priorityPlayer = m_config.PriorityPlayers.FirstOrDefault(
+                    p => p.SteamId == steamId || p.LicenseId == licenseId || 
+                    p.DiscordId == discordId || p.FivemId == fivemId);
 
-                bool inPriority = priority.ContainsKey(license);
-                int dots = 0;
 
-                while (session[license].Equals(SessionState.Queue))
+                    
+                // Add to queue
+                queuePlayer = new QueuePlayer()
                 {
-                    if (index.ContainsKey(license) && index.TryGetValue(license, out int position))
-                    {
-                        int count = inPriority ? inPriorityQueue : inQueue;
-                        string message = inPriority ? "You are in priority queue" : "You are in queue";
-                        deferrals.update($"{message} {position} / {count}{new string('.', dots)}");
-                    }
-                    dots = dots > 2 ? 0 : dots + 1;
-                    if (source?.EndPoint == null)
-                    {
-                        UpdateTimer(license);
-                        deferrals.done("Lost connection. Try again.");
-                        if (stateChangeMessages) { Debug.WriteLine($"[GGQ]: QUEUE -> CANCELED -> {license}"); }
-                        return;
-                    }
-                    RemoveFrom(license, false, false, true, false, false, false);
-                    await Delay(5000);
-                }
-                await Delay(500);
-                deferrals.done();
+                    Handle = int.Parse(player.Handle),
+                    LicenseId = licenseId,
+                    SteamId = steamId,
+                    XblId = xblId,
+                    LiveId = liveId,
+                    DiscordId = discordId,
+                    FivemId = fivemId,
+                    Name = player.Name,
+                    JoinCount = 1,
+                    JoinTime = DateTime.UtcNow,
+                    Deferrals = deferrals,
+                    Priority = priorityPlayer?.Priority ?? 100
+                };
+
+                AddToQueue(queuePlayer);
             }
             catch (Exception e)
             {
-                Debug.WriteLine(e.Message);
-                deferrals.done($"Error"); return;
+                Log(e.Message);
+                CancelEvent();
             }
+        }
+
+        private void AddToQueue(QueuePlayer player)
+        {
+            // Find out where to insert them in the queue.
+            int queuePosition = m_queue.FindLastIndex(p => p.Priority <= player.Priority) + 1;
+
+            m_queue.Insert(queuePosition, player);
+
+            Log($"Added {player.Name} to the queue with priority {player.Priority} [{m_queue.IndexOf(player) + 1}/{m_queue.Count}]");
+            if (player.Deferrals == null) return;
+            ((CallbackDelegate)player.Deferrals.ToList()[0].Value)();
+            ((CallbackDelegate)player.Deferrals.ToList()[2].Value)("Connecting");
         }
 
         [EventHandler("playerDropped")]
-        public void OnPlayerDropped([FromSource]Player player, string reason)
+        public void OnPlayerDropped([FromSource] Player player, string disconnectMessage, CallbackDelegate kickReason)
         {
             try
             {
-                string license = player.Identifiers["license"];
-                if (license == null)
-                {
-                    return;
-                }
-                if (!session.ContainsKey(license) || reason == "Exited")
-                {
-                    return;
-                }
-                bool hasState = session.TryGetValue(license, out SessionState oldState);
-                if (hasState && oldState != SessionState.Queue)
-                {
-                    session.TryUpdate(license, SessionState.Grace, oldState);
-                    if (stateChangeMessages) { Debug.WriteLine($"[{resourceName}]: {Enum.GetName(typeof(SessionState), oldState).ToUpper()} -> GRACE -> {license}"); }
-                    UpdateTimer(license);
-                }
-            }
-            catch (Exception)
-            {
-                Debug.WriteLine($"[{resourceName} - ERROR] - OnPlayerDropped()");
-            }
-        }
-
-        [EventHandler("ggq:playerActivated")]
-        public void OnPlayerActivated([FromSource]Player player)
-        {
-            try
-            {
-                string license = player.Identifiers["license"];
-                if (!session.ContainsKey(license))
-                {
-                    session.TryAdd(license, SessionState.Active);
-                    return;
-                }
-                session.TryGetValue(license, out SessionState oldState);
-                session.TryUpdate(license, SessionState.Active, oldState);
-                if (stateChangeMessages) { Debug.WriteLine($"[{resourceName}]: {Enum.GetName(typeof(SessionState), oldState).ToUpper()} -> ACTIVE -> {license}"); }
-            }
-            catch (Exception)
-            {
-                Debug.WriteLine($"[{resourceName} - ERROR] - OnPlayerActivated()");
-            }
-        }
-
-        [Tick]
-        public async Task OnQueueTick()
-        {
-            try
-            {
-                inQueue = QueueCount();
-                await Delay(100);
-                UpdateHostName();
-                UpdateStates();
-                await Delay(1000);
-                
+                QueuePlayer queuePlayer = m_queue.FirstOrDefault(p => p.LicenseId == player.Identifiers["license"]);
+                if (queuePlayer == null) return;
+                OnPlayerDisconnect(queuePlayer, disconnectMessage);
             }
             catch (Exception e)
             {
-                Debug.WriteLine($"[GGQ] ^1ERROR^7 - OnQueueTick() - {e.Message}");
+                Log(e.Message);
             }
         }
 
-        private bool ValidName(string playerName)
+        [EventHandler("ggq:playerConnected")]
+        public void OnPlayerConnected([FromSource] Player player)
         {
-            char[] chars = playerName.ToCharArray();
-
-            char lastCharacter = new char();
-            foreach (char currentCharacter in chars)
-            {
-                if (!allowedChars.ToCharArray().Contains(currentCharacter)) { return false; }
-                if (char.IsWhiteSpace(currentCharacter) && char.IsWhiteSpace(lastCharacter)) { return false; }
-                lastCharacter = currentCharacter;
-            }
-            return true;
-        }
-
-        private int QueueCount()
-        {
+            Log($"Player connected, removing from queue: {player.Name}");
             try
             {
-                int place = 0;
-                ConcurrentQueue<string> temp = new ConcurrentQueue<string>();
-                while (!queue.IsEmpty)
-                {
-                    queue.TryDequeue(out string license);
-                    if (IsTimeUp(license, queueGraceTime))
-                    {
-                        RemoveFrom(license, true, true, true, true, true, true);
-                        if (stateChangeMessages) { Debug.WriteLine($"[GGQ]: CANCELED -> REMOVED -> {license}"); }
-                        continue;
-                    }
-
-                    if (!Loading(license))
-                    {
-                        place += 1;
-                        UpdatePlace(license, place);
-                        temp.Enqueue(license);
-                    }
-                }
-                while (!newQueue.IsEmpty)
-                {
-                    newQueue.TryDequeue(out string license);
-                    if (!Loading(license))
-                    {
-                        place += 1;
-                        UpdatePlace(license, place);
-                        temp.Enqueue(license);
-                    }
-                }
-                queue = temp;
-                return queue.Count;
+                QueuePlayer queuePlayer = m_queue.FirstOrDefault(p => p.LicenseId == player.Identifiers["license"]);
+                if (queuePlayer != null) m_queue.Remove(queuePlayer);
             }
-            catch (Exception)
+            catch (Exception e)
             {
-                Debug.WriteLine($"[GGQ] ^1ERROR^7 - QueueCount()");
-                return queue.Count;
+                Log(e.Message);
             }
         }
 
-        private void UpdateHostName()
+        private void OnPlayerDisconnect(QueuePlayer queuePlayer, string disconnectMessage)
         {
-            try
-            {
-                if (originalHostName == string.Empty) { originalHostName = GetConvar("sv_hostname", string.Empty); }
-                if (originalHostName == string.Empty) { return; }
-
-                string concat = originalHostName;
-                bool editHost = false;
-                int count = inQueue + inPriorityQueue;
-
-                editHost = true;
-                if (count > 0) { concat = string.Format($"[Queue: {0}] {concat}", count); }
-                else { concat = originalHostName; }
-
-                if (lastCount != count && editHost)
-                {
-                    SetConvar("sv_hostname", concat);
-                }
-                lastCount = count;
-            }
-            catch (Exception)
-            {
-                Debug.WriteLine($"[{resourceName} - ERROR] - UpdateHostName()");
-            }
+            Log($"Disconnected: {queuePlayer.Name} {disconnectMessage}");
+            queuePlayer.Status = QueueStatus.Disconnected;
+            queuePlayer.DisconnectTime = DateTime.UtcNow;
         }
 
-        private bool Loading(string license)
+        public static void Log(string message)
         {
-            try
-            {
-                if (session.Count(j => j.Value != SessionState.Queue) - slotTaken.Count(i => i.Value != Reserved.Public) < maxSession)
-                { NewLoading(license, Reserved.Public); return true; }
-                else { return false; }
-            }
-            catch (Exception)
-            {
-                Debug.WriteLine($"[{resourceName} - ERROR] - Loading()"); return false;
-            }
+            Debug.WriteLine($"{DateTime.Now:s} [SERVER:QUEUE]: {message}");
         }
-
-        private void NewLoading(string license, Reserved slotType)
-        {
-            try
-            {
-                if (session.TryGetValue(license, out SessionState oldState))
-                {
-                    UpdateTimer(license);
-                    RemoveFrom(license, false, true, false, false, false, false);
-                    if (!slotTaken.TryAdd(license, slotType))
-                    {
-                        slotTaken.TryGetValue(license, out Reserved oldSlotType);
-                        slotTaken.TryUpdate(license, slotType, oldSlotType);
-                    }
-                    session.TryUpdate(license, SessionState.Loading, oldState);
-                    if (stateChangeMessages) { Debug.WriteLine($"[{resourceName}]: QUEUE -> LOADING -> ({Enum.GetName(typeof(Reserved), slotType)}) {license}"); }
-                }
-            }
-            catch (Exception)
-            {
-                Debug.WriteLine($"[GGQ] ^1ERROR^7 - NewLoading()");
-            }
-        }
-
-        private bool IsTimeUp(string license, double time)
-        {
-            try
-            {
-                if (!timer.ContainsKey(license)) { return false; }
-                return timer[license].AddMinutes(time) < DateTime.UtcNow;
-            }
-            catch (Exception)
-            {
-                Debug.WriteLine($"[GGQ] ^1ERROR^7 - IsTimeUp()"); return false;
-            }
-        }
-
-        private void UpdatePlace(string license, int place)
-        {
-            try
-            {
-                if (!index.TryAdd(license, place))
-                {
-                    index.TryGetValue(license, out int oldPlace);
-                    index.TryUpdate(license, place, oldPlace);
-                }
-            }
-            catch (Exception)
-            {
-                Debug.WriteLine($"[GGQ] ^1ERROR^7 - UpdatePlace()");
-            }
-        }
-
-        private void UpdateTimer(string license)
-        {
-            try
-            {
-                if (!timer.TryAdd(license, DateTime.UtcNow))
-                {
-                    timer.TryGetValue(license, out DateTime oldTime);
-                    timer.TryUpdate(license, DateTime.UtcNow, oldTime);
-                }
-            }
-            catch (Exception)
-            {
-                Debug.WriteLine($"[GGQ] ^1ERROR^7 - UpdateTimer()");
-            }
-        }
-
-        private void UpdateStates()
-        {
-            try
-            {
-                session.Where(k => k.Value == SessionState.Loading || k.Value == SessionState.Grace).ToList().ForEach(j =>
-                {
-                    string license = j.Key;
-                    SessionState state = j.Value;
-                    switch (state)
-                    {
-                        case SessionState.Loading:
-                            if (!timer.TryGetValue(license, out DateTime oldLoadTime))
-                            {
-                                UpdateTimer(license);
-                                break;
-                            }
-
-                            if (sentLoading.ContainsKey(license) && Players.FirstOrDefault(i => i.Identifiers["license"] == license) != null)
-                            {
-                                sentLoading.TryRemove(license, out Player oldPlayer);
-                            }
-
-                            break;
-                        case SessionState.Grace:
-                            if (!timer.TryGetValue(license, out DateTime oldGraceTime))
-                            {
-                                UpdateTimer(license);
-                                break;
-                            }
-                            if (IsTimeUp(license, graceTime))
-                            {
-                                if (Players.FirstOrDefault(i => i.Identifiers["license"] == license)?.EndPoint != null)
-                                {
-                                    if (!session.TryAdd(license, SessionState.Active))
-                                    {
-                                        session.TryGetValue(license, out SessionState oldState);
-                                        session.TryUpdate(license, SessionState.Active, oldState);
-                                    }
-                                }
-                                else
-                                {
-                                    RemoveFrom(license, true, true, true, true, true, true);
-                                    if (stateChangeMessages) { Debug.WriteLine($"[{resourceName}]: GRACE -> REMOVED -> {license}"); }
-                                }
-                            }
-                            break;
-                    }
-                });
-            }
-            catch (Exception)
-            {
-                Debug.WriteLine($"[{resourceName} - ERROR] - UpdateStates()");
-            }
-        }
-
-        private void RemoveFrom(string license, bool doSession, bool doIndex, bool doTimer, bool doPriority, bool doReserved, bool doSlot)
-        {
-            try
-            {
-                if (doSession) { session.TryRemove(license, out SessionState oldState); }
-                if (doIndex) { index.TryRemove(license, out int oldPosition); }
-                if (doTimer) { timer.TryRemove(license, out DateTime oldTime); }
-                if (doPriority) { priority.TryRemove(license, out int oldPriority); }
-                if (doReserved) { reserved.TryRemove(license, out Reserved oldReserved); }
-                if (doSlot) { slotTaken.TryRemove(license, out Reserved oldSlot); }
-            }
-            catch (Exception)
-            {
-                Debug.WriteLine($"[GGQ] ^1ERROR^7 - RemoveFrom()");
-            }
-        }
-
-        private bool IsEverythingReady()
-        {
-            if (serverQueueReady)
-            { return true; }
-            return false;
-        }
-    }
-
-    enum SessionState
-    {
-        Queue,
-        Grace,
-        Loading,
-        Active,
-    }
-
-    enum Reserved
-    {
-        Reserved1 = 1,
-        Reserved2,
-        Reserved3,
-        Public
     }
 }

@@ -7,6 +7,7 @@ using CitizenFX.Core;
 using CitizenFX.Core.Native;
 using GGSQL.Models;
 using GGSQL.Models.Styles;
+using GGSQL.Controllers;
 
 namespace GGSQL
 {
@@ -23,6 +24,8 @@ namespace GGSQL
         private List<User> _cachedUsers;
         private List<Connection> _cachedConnections;
 
+        private ShopController m_shopController;
+
         protected MySqlDatabase _mysqlDb
         {
             get
@@ -30,7 +33,7 @@ namespace GGSQL
                 if(_db == null)
                 {
                     _dbDebug = API.GetConvarInt("mysql_debug", 0) == 1 ? true : false;
-                    _db = new MySqlDatabase(API.GetConvar("mysql_connection_string", "notset"), _dbDebug);
+                    _db = new MySqlDatabase(API.GetConvar("mysql_connection_string", "notset"), _dbDebug, _logger);
                 }
                 return _db;
             }
@@ -55,6 +58,17 @@ namespace GGSQL
 
             Tick += SaveTick;
             Tick += FlushTick;
+            Tick += InitializeController;
+        }
+
+        public async Task InitializeController()
+        {
+            m_shopController = new ShopController(_mysqlDb);
+            RegisterScript(m_shopController);
+
+            Tick -= InitializeController;
+
+            await Task.FromResult(0);
         }
 
         public async void BaseOnServerResourceStart(string resourceName)
@@ -341,6 +355,8 @@ namespace GGSQL
                         success = await _mysqlDb.UpdateConnection(droppedConnection);
                         _cachedConnections.Remove(droppedConnection);
                     }
+
+                    if (success) _cachedUsers.Remove(user);
 
                     _logger.Info($"Saving profile of {name} was {(success ? "Successful" : "Unsuccessful")}");
                 }
