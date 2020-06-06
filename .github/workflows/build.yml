@@ -18,4 +18,4 @@ jobs:
     - name: Install dependencies
       run: dotnet restore
     - name: Build GGSQL
-      run: dotnet build GGSQL/GGSQL.csproj --configuration Release --no-restore  -p:PostBuildEvent=
+      run: dotnet build GGSQL/GGSQL.csproj --configuration Release -p:PostBuildEvent=
