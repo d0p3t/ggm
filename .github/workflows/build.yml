@@ -1,9 +1,4 @@
 name: 'Verify GGSQL Project'
-description: 'Builds GGSQL project of the Gun Game Management module'
-author: 'd0p3t'
-branding:
-  icon: play
-  color: green
 
 on:
   push:
