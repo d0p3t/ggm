@@ -11,11 +11,13 @@ jobs:
 
     steps:
     - uses: actions/checkout@main
+    - name: Setup Nuget.exe
+      uses: warrenbuckley/Setup-Nuget@v1
     - name: Setup .NET Core
       uses: actions/setup-dotnet@v1
       with:
         dotnet-version: '3.1.x'
     - name: Install dependencies
-      run: dotnet restore GGSQL/GGSQL.csproj
+      run: nuget restore GGM.sln
     - name: Build GGSQL
       run: dotnet build GGSQL/GGSQL.csproj --configuration Release -p:PostBuildEvent= --no-restore
