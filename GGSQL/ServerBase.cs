@@ -21,9 +21,6 @@ namespace GGSQL
         private int _saveMinutes;
         private int _flushHours;
 
-        private List<User> _cachedUsers;
-        private List<Connection> _cachedConnections;
-
         private ShopController m_shopController;
 
         protected MySqlDatabase _mysqlDb
@@ -44,16 +41,13 @@ namespace GGSQL
             _saveMinutes = 5;
             _flushHours = 3;
 
-            _cachedUsers = new List<User>();
-            _cachedConnections = new List<Connection>();
-
             _logger = new ServerLogger("GGSQL", LogLevel.Info);
 
             EventHandlers["onServerResourceStart"] += new Action<string>(BaseOnServerResourceStart);
             EventHandlers["playerReady"] += new Action<Player>(OnPlayerReady);
             EventHandlers["gg_internal:updateXpMoney"] += new Action<int, int, int>(OnUpdateXpAndMoney);
-            EventHandlers["gg_internal:syncUsers"] += new Action<string>(OnUsersSync);
-            EventHandlers["gg_internal:syncUser"] += new Action<string, string>(OnUserSync);
+            EventHandlers["gg_internal:syncCache.Users"] += new Action<string>(OnUsersSync);
+            EventHandlers["gg_internal:syncUser"] += new Action<string, string>(OnUsersync);
             EventHandlers["gg_internal:syncWinner"] += new Action<string>(OnWinnerSync);
 
             Tick += SaveTick;
@@ -63,7 +57,7 @@ namespace GGSQL
 
         public async Task InitializeController()
         {
-            m_shopController = new ShopController(_mysqlDb);
+            m_shopController = new ShopController(_mysqlDb, _logger);
             RegisterScript(m_shopController);
 
             Tick -= InitializeController;
@@ -95,9 +89,9 @@ namespace GGSQL
                 // 1. Check for cached user
                 User user = null;
 
-                if (_cachedUsers.Count > 0)
+                if (Cache.Users.Count > 0)
                 {
-                    user = _cachedUsers.FirstOrDefault(x => x.LicenseId == licenseId);
+                    user = Cache.Users.FirstOrDefault(x => x.LicenseId == licenseId);
 
                     if (user != null)
                         user.NetId = Convert.ToInt32(player.Handle);
@@ -122,52 +116,109 @@ namespace GGSQL
 
                     user.NetId = Convert.ToInt32(player.Handle);
 
-                    _cachedUsers.Add(user);
+                    Cache.Users.Add(user);
                 }
 
                 try
                 {
-                    var style = user.ClothingStyles.FirstOrDefault(cs => cs.IsActiveStyle);
-                    var changed = UpdateStyle(ref style, user.Xp);
+                    bool loadCommerce = false;
+                    if(API.CanPlayerStartCommerceSession(player.Handle))
+                    {
+                        if (!API.IsPlayerCommerceInfoLoadedExt(player.Handle))
+                        {
+                            API.LoadPlayerCommerceDataExt(player.Handle);
+
+                            var start = API.GetGameTimer();
+                            var broke = false;
+                            while (!API.IsPlayerCommerceInfoLoadedExt(player.Handle))
+                            {
+                                if(API.GetGameTimer() - start > 5000)
+                                {
+                                    broke = true;
+                                    break;
+                                }
+                                await Delay(0);
+                            }
+
+                            if(!broke)
+                                loadCommerce = true;
+                        }
+                    }
+
+                    await m_shopController.GetUserOutfits(user.Id, user.NetId, loadCommerce);
+                    // await m_shopController.GetUserGeneralItems(user.Id, user.NetId, loadCommerce);
+                    // m_shopController.ActivateGeneralItems(user.Id, user.NetId);
                 }
                 catch (Exception ex)
                 {
-                    _logger.Exception("OnPlayerReady - Updating clothing style -", ex);
+                    _logger.Exception("OnPlayerReady - ShopController stuff", ex);
                 }
+
 
                 try
                 {
-                    _logger.Info($"[JOIN] {player.Name} joined. (IP: {player.EndPoint})");
-
-                    TriggerEvent("gg_internal:playerReady", JsonConvert.SerializeObject(user));
-
-                    if (user.Donator)
+                    try
                     {
-                        await Delay(0);
+                        Debug.WriteLine($"{user.ActiveUserOutfit} active outfit id");
+                        var style = await m_shopController.GetActiveUserOutfit(player, user.ActiveUserOutfit, user.Id);
 
-                        var style = new ClothingStyle(3);
-                        var components = new List<PedComponent>
+                        if(user.ActiveUserOutfit == 0)
+                        {
+                            Debug.WriteLine($"it's 0 and the style we have is..");
+                            Debug.WriteLine($"{style.Id}");
+                            user.ActiveUserOutfit = style.Id;
+                        }
+
+                        List<PedComponent> components = new List<PedComponent>
+                        {
+                            new PedComponent(1, 57, 0, 2), // Head
+                            new PedComponent(3, 41, 0, 2), // Torso
+                            new PedComponent(4, 98, 13, 2), // Legs
+                            new PedComponent(6, 71, 13, 2), // Feet
+                            new PedComponent(8, 15, 0, 2), // Accessoires
+                            new PedComponent(11, 251, 13, 2) // Torso2
+                        };
+
+                        try
+                        {
+                            if (style != null)
                             {
-                                /// halo
-                                new PedComponent(1, 28, 4, 2), // Head
-                                new PedComponent(3, 18, 4, 2), // Torso
-                                new PedComponent(4, 31, 4, 2), // Legs
-                                new PedComponent(6, 24, 0, 2), // Feet
-                                new PedComponent(8, 15, 0, 2), // Accessoires
-                                new PedComponent(11, 49, 4, 2) // Torso2
+                                var outfit = Cache.Outfits.FirstOrDefault(o => o.Id == style.OutfitId);
 
-                                // old pilot
-                                //new PedComponent(1, 27, 0, 0), // Head
-                                //new PedComponent(3, 16, 0, 0), // Torso
-                                //new PedComponent(4, 8, 0, 0), // Legs
-                                //new PedComponent(6, 27, 0, 0), // Feet
-                                //new PedComponent(8, 15, 0, 0), // Accessoires
-                                //new PedComponent(11, 48, 0, 0) // Torso2
-                            };
+                                if (outfit != null)
+                                {
+                                    components = outfit.Components;
+                                }
+                            }
 
-                        style.PedComponents = components;
-                        player.TriggerEvent("setActiveStyle", JsonConvert.SerializeObject(style));
+                            try
+                            {
+                                var clothingStyle = new ClothingStyle(1)
+                                {
+                                    PedComponents = components,
+                                    IsActiveStyle = true,
+                                    User_id = user.Id
+                                };
+
+                                TriggerEvent("gg_internal:playerReady", JsonConvert.SerializeObject(user), JsonConvert.SerializeObject(clothingStyle));
+                            }
+                            catch (Exception ex)
+                            {
+                                Debug.WriteLine($"User ActiveUserOutfit? {user.ActiveUserOutfit} | Components? {components[0].ComponentId}");
+                            }
+                        }
+                        catch (Exception)
+                        {
+                            Debug.WriteLine("ACTUALLY HERE");
+                        }
+
                     }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine("HERE");
+                    }
+
+
                 }
                 catch (Exception ex)
                 {
@@ -176,13 +227,13 @@ namespace GGSQL
 
                 try
                 {
-                    var connection = _cachedConnections.FirstOrDefault(c => c.UserId == user.Id);
+                    var connection = Cache.Connections.FirstOrDefault(c => c.UserId == user.Id);
                     if (connection == null)
                         connection = new Connection(user.Id, user.Endpoint);
 
                     var conn = await _mysqlDb.InsertConnection(connection);
                     if (conn != null)
-                        _cachedConnections.Add(conn);
+                        Cache.Connections.Add(conn);
                 }
                 catch (Exception ex)
                 {
@@ -194,11 +245,13 @@ namespace GGSQL
             {
                 _logger.Exception("OnPlayerReady - Other -", ex);
             }
+
+            _logger.Info($"[JOIN] {player.Name} joined. (IP: {player.EndPoint})");
         }
 
         public void OnUpdateXpAndMoney(int netId, int addedXp, int addedMoney)
         {
-            var user = _cachedUsers.FirstOrDefault(x => x.NetId == netId);
+            var user = Cache.Users.FirstOrDefault(x => x.NetId == netId);
 
             if (user == null)
             {
@@ -213,7 +266,7 @@ namespace GGSQL
 
                 if(player != null)
                 {
-                    Exports["ggcommon"].Log("XP/Money Violatoin", $"**Player:** {user.LicenseId}\n**Added XP:** {addedXp}\n**Added Money:** {addedMoney}");
+                    Exports["ggcommon"].Log("XP/Money Violation", $"**Player:** {user.LicenseId}\n**Added XP:** {addedXp}\n**Added Money:** {addedMoney}");
                     player.Drop("Kicked.");
                 }
 
@@ -232,9 +285,9 @@ namespace GGSQL
             {
                 await Delay(60000 * _saveMinutes);
 
-                if (_cachedUsers.Count > 0)
+                if (Cache.Users.Count > 0)
                 {
-                    var success = await _mysqlDb.SaveUsers(_cachedUsers);
+                    var success = await _mysqlDb.SaveUsers(Cache.Users);
 
                     _logger.Info($"Saving profiles was {(success ? "Successful" : "Unsuccessful")}");
                 }
@@ -251,27 +304,27 @@ namespace GGSQL
             {
                 await Delay(60000 * 60 * _flushHours);
 
-                if (_cachedUsers.Count == 0) return;
+                if (Cache.Users.Count == 0) return;
 
-                var success = await _mysqlDb.SaveUsers(_cachedUsers); // Lets first save users
+                var success = await _mysqlDb.SaveUsers(Cache.Users); // Lets first save Cache.Users
 
                 if (!success) return;
 
-                List<User> usersToKeep = new List<User>();
+                List<User> UsersToKeep = new List<User>();
 
                 foreach(var player in Players)
                 {
-                    var user = _cachedUsers.FirstOrDefault(x => x.NetId == Convert.ToInt32(player.Handle));
+                    var user = Cache.Users.FirstOrDefault(x => x.NetId == Convert.ToInt32(player.Handle));
                     if(user != null)
                     {
-                        usersToKeep.Add(user);
+                        UsersToKeep.Add(user);
                     }
                 }
 
-                if(usersToKeep.Count > 0)
-                    _cachedUsers = usersToKeep;
+                if(UsersToKeep.Count > 0)
+                    Cache.Users = UsersToKeep;
 
-                _logger.Info($"Flush complete. Kept {usersToKeep.Count} Users in Cache.");
+                _logger.Info($"Flush complete. Kept {UsersToKeep.Count} Users in Cache.");
             }
             catch (Exception e)
             {
@@ -279,7 +332,7 @@ namespace GGSQL
             }
         }
 
-        private void OnUsersSync(string data)
+        private async void OnUsersSync(string data)
         {
             try
             {
@@ -290,7 +343,7 @@ namespace GGSQL
                 {
                     try
                     {
-                        var user = _cachedUsers.FirstOrDefault(x => x.NetId == syncUser.NetId && x.Id == syncUser.Id);
+                        var user = Cache.Users.FirstOrDefault(x => x.NetId == syncUser.NetId && x.Id == syncUser.Id);
 
                         if (user == null)
                         {
@@ -302,43 +355,50 @@ namespace GGSQL
                         user.Xp = syncUser.Xp;
                         user.Money = syncUser.Money;
 
-                        if (!user.Donator)
-                        {
-                            var style = user.ClothingStyles.FirstOrDefault(cs => cs.IsActiveStyle);
-                            var compfour = style.PedComponents.FirstOrDefault(p => p.ComponentId == 4);
-                            var changed = UpdateStyle(ref style, user.Xp);
-                            if (changed)
-                            {
-                                if (compfour.DrawableId != style.PedComponents.First(p => p.ComponentId == 4).DrawableId)
-                                {
-                                    if (Players[syncUser.NetId] != null)
-                                    {
-                                        Players[syncUser.NetId].TriggerEvent("setActiveStyle", JsonConvert.SerializeObject(style));
-                                    }
-                                }
-                            }
-                        }
+                        await m_shopController.UpdateOutfits(user.NetId, false);
+
+                        //if (!user.Donator)
+                        //{
+                            //var style = user.ClothingStyles.FirstOrDefault(cs => cs.IsActiveStyle);
+                            //var compfour = style.PedComponents.FirstOrDefault(p => p.ComponentId == 4);
+
+
+                            //var changed = UpdateStyle(ref style, user.Xp);
+                            //if (changed)
+                            //{
+                            //    if (compfour.DrawableId != style.PedComponents.First(p => p.ComponentId == 4).DrawableId)
+                            //    {
+                            //        if (Players[syncUser.NetId] != null)
+                            //        {
+                            //            Players[syncUser.NetId].TriggerEvent("setActiveStyle", JsonConvert.SerializeObject(style));
+                            //        }
+                            //    }
+                            //}
+                        //}
                     }
-                    catch { }
+                    catch (Exception ex)
+                    {
+                        _logger.Exception("OnUsersSync:foreachStatement", ex);
+                    }
 
                     count++;
                 }
 
-                _logger.Info($"Synced {count} users");
+                _logger.Info($"Synced {count} Cache.Users");
             }
             catch (Exception e)
             {
-                _logger.Exception("OnUsersSync", e);
+                _logger.Exception("OnCache.UsersSync", e);
             }
         }
 
-        private async void OnUserSync(string data, string name)
+        private async void OnUsersync(string data, string name)
         {
             try
             {
                 var parsed = JsonConvert.DeserializeObject<SyncUser>(data);
 
-                var user = _cachedUsers.FirstOrDefault(x => x.NetId == parsed.NetId && x.Id == parsed.Id);
+                var user = Cache.Users.FirstOrDefault(x => x.NetId == parsed.NetId && x.Id == parsed.Id);
 
                 if(user != null)
                 {
@@ -349,21 +409,25 @@ namespace GGSQL
 
                     var success = await _mysqlDb.SaveUser(user);
 
-                    var droppedConnection = _cachedConnections.FirstOrDefault(c => c.UserId == user.Id);
+                    var droppedConnection = Cache.Connections.FirstOrDefault(c => c.UserId == user.Id);
                     if (droppedConnection != null)
                     {
                         success = await _mysqlDb.UpdateConnection(droppedConnection);
-                        _cachedConnections.Remove(droppedConnection);
+                        Cache.Connections.Remove(droppedConnection);
                     }
 
-                    if (success) _cachedUsers.Remove(user);
+                    if (success)
+                    {
+                        success = await m_shopController.RemoveUserOutfitsFromCache(user.NetId);
+                        Cache.Users.Remove(user);
+                    }
 
                     _logger.Info($"Saving profile of {name} was {(success ? "Successful" : "Unsuccessful")}");
                 }
             }
             catch (Exception e)
             {
-                _logger.Exception("OnUserSync", e);
+                _logger.Exception("OnCache.Usersync", e);
             }
         }
 
@@ -379,165 +443,165 @@ namespace GGSQL
             }
             catch (Exception e)
             {
-                _logger.Exception("OnUserSync", e);
+                _logger.Exception("OnCache.Usersync", e);
             }
         }
 
-        private bool UpdateStyle(ref ClothingStyle style, int xp)
-        {
-            List<PedComponent> components = new List<PedComponent>();
+        //private bool UpdateStyle(ref ClothingStyle style, int xp)
+        //{
+        //    List<PedComponent> components = new List<PedComponent>();
 
-            //PedComponent zero = null;
-            PedComponent one = null;
-            //PedComponent two = null;
-            PedComponent three = null;
-            PedComponent four = null;
-            //PedComponent five = null;
-            PedComponent six = null;
-            PedComponent seven = null;
-            PedComponent eight = null;
-            PedComponent nine = null;
-            PedComponent ten = null;
-            PedComponent eleven = null;
-            bool changed = false;
+        //    //PedComponent zero = null;
+        //    PedComponent one = null;
+        //    //PedComponent two = null;
+        //    PedComponent three = null;
+        //    PedComponent four = null;
+        //    //PedComponent five = null;
+        //    PedComponent six = null;
+        //    PedComponent seven = null;
+        //    PedComponent eight = null;
+        //    PedComponent nine = null;
+        //    PedComponent ten = null;
+        //    PedComponent eleven = null;
+        //    bool changed = false;
 
-            if (xp >= 8090) // level 10
-            {
-                // 1318 very much the same
-                //zero = new PedComponent(0, -1, -1, 0);
-                one = new PedComponent(1, 57, 0, 0);
-                //two = new PedComponent(2, -1, -1, 0);
-                three = new PedComponent(3, 41, 0, 0);
-                four = new PedComponent(4, 97, 18, 0);
-                //five = new PedComponent(5, -1, -1, 0);
-                six = new PedComponent(6, 70, 18, 0);
-                seven = new PedComponent(7, 0, 0, 0);
-                eight = new PedComponent(8, 15, 0, 0);
-                nine = new PedComponent(9, 0, 0, 0);
-                ten = new PedComponent(10, 0, 0, 0);
-                eleven = new PedComponent(11, 251, 18, 0);
-                changed = true;
+        //    if (xp >= 8090) // level 10
+        //    {
+        //        // 1318 very much the same
+        //        //zero = new PedComponent(0, -1, -1, 0);
+        //        one = new PedComponent(1, 57, 0, 0);
+        //        //two = new PedComponent(2, -1, -1, 0);
+        //        three = new PedComponent(3, 41, 0, 0);
+        //        four = new PedComponent(4, 97, 18, 0);
+        //        //five = new PedComponent(5, -1, -1, 0);
+        //        six = new PedComponent(6, 70, 18, 0);
+        //        seven = new PedComponent(7, 0, 0, 0);
+        //        eight = new PedComponent(8, 15, 0, 0);
+        //        nine = new PedComponent(9, 0, 0, 0);
+        //        ten = new PedComponent(10, 0, 0, 0);
+        //        eleven = new PedComponent(11, 251, 18, 0);
+        //        changed = true;
 
-                if (xp >= 50562) // level 25
-                {
-                    // 1317
-                    //zero = new PedComponent(0, -1, -1, 0);
-                    one = new PedComponent(1, 57, 0, 0);
-                    //two = new PedComponent(2, -1, -1, 0);
-                    three = new PedComponent(3, 41, 0, 0);
-                    four = new PedComponent(4, 97, 0, 0);
-                    //five = new PedComponent(5, -1, -1, 0);
-                    six = new PedComponent(6, 70, 0, 0);
-                    seven = new PedComponent(7, 0, 0, 0);
-                    eight = new PedComponent(8, 15, 0, 0);
-                    nine = new PedComponent(9, 0, 0, 0);
-                    ten = new PedComponent(10, 0, 0, 0);
-                    eleven = new PedComponent(11, 253, 0, 0);
+        //        if (xp >= 50562) // level 25
+        //        {
+        //            // 1317
+        //            //zero = new PedComponent(0, -1, -1, 0);
+        //            one = new PedComponent(1, 57, 0, 0);
+        //            //two = new PedComponent(2, -1, -1, 0);
+        //            three = new PedComponent(3, 41, 0, 0);
+        //            four = new PedComponent(4, 97, 0, 0);
+        //            //five = new PedComponent(5, -1, -1, 0);
+        //            six = new PedComponent(6, 70, 0, 0);
+        //            seven = new PedComponent(7, 0, 0, 0);
+        //            eight = new PedComponent(8, 15, 0, 0);
+        //            nine = new PedComponent(9, 0, 0, 0);
+        //            ten = new PedComponent(10, 0, 0, 0);
+        //            eleven = new PedComponent(11, 253, 0, 0);
 
-                    if (xp >= 202250) // level 50
-                    {
-                        // 1320
-                        //zero = new PedComponent(0, -1, -1, 0);
-                        one = new PedComponent(1, 57, 0, 0);
-                        //two = new PedComponent(2, -1, -1, 0);
-                        three = new PedComponent(3, 41, 0, 0);
-                        four = new PedComponent(4, 98, 6, 0);
-                        //five = new PedComponent(5, -1, -1, 0);
-                        six = new PedComponent(6, 71, 14, 0);
-                        seven = new PedComponent(7, 0, 0, 0);
-                        eight = new PedComponent(8, 15, 0, 0);
-                        nine = new PedComponent(9, 0, 0, 0);
-                        ten = new PedComponent(10, 0, 0, 0);
-                        eleven = new PedComponent(11, 253, 6, 0);
+        //            if (xp >= 202250) // level 50
+        //            {
+        //                // 1320
+        //                //zero = new PedComponent(0, -1, -1, 0);
+        //                one = new PedComponent(1, 57, 0, 0);
+        //                //two = new PedComponent(2, -1, -1, 0);
+        //                three = new PedComponent(3, 41, 0, 0);
+        //                four = new PedComponent(4, 98, 6, 0);
+        //                //five = new PedComponent(5, -1, -1, 0);
+        //                six = new PedComponent(6, 71, 14, 0);
+        //                seven = new PedComponent(7, 0, 0, 0);
+        //                eight = new PedComponent(8, 15, 0, 0);
+        //                nine = new PedComponent(9, 0, 0, 0);
+        //                ten = new PedComponent(10, 0, 0, 0);
+        //                eleven = new PedComponent(11, 253, 6, 0);
 
-                        if (xp >= 455062) // level 75
-                        {
-                            // hazmat suit yellow
-                            //zero = new PedComponent(0, -1, -1, 0);
-                            one = new PedComponent(1, 46, 0, 0);
-                            //two = new PedComponent(2, -1, -1, 0);
-                            three = new PedComponent(3, 88, 0, 0);
-                            four = new PedComponent(4, 40, 2, 0);
-                            //five = new PedComponent(5, -1, -1, 0);
-                            six = new PedComponent(6, 25, 0, 0);
-                            seven = new PedComponent(7, 0, 0, 0);
-                            eight = new PedComponent(8, 62, 2, 0);
-                            nine = new PedComponent(9, 0, 0, 0);
-                            ten = new PedComponent(10, 0, 0, 0);
-                            eleven = new PedComponent(11, 67, 2, 0);
+        //                if (xp >= 455062) // level 75
+        //                {
+        //                    // hazmat suit yellow
+        //                    //zero = new PedComponent(0, -1, -1, 0);
+        //                    one = new PedComponent(1, 46, 0, 0);
+        //                    //two = new PedComponent(2, -1, -1, 0);
+        //                    three = new PedComponent(3, 88, 0, 0);
+        //                    four = new PedComponent(4, 40, 2, 0);
+        //                    //five = new PedComponent(5, -1, -1, 0);
+        //                    six = new PedComponent(6, 25, 0, 0);
+        //                    seven = new PedComponent(7, 0, 0, 0);
+        //                    eight = new PedComponent(8, 62, 2, 0);
+        //                    nine = new PedComponent(9, 0, 0, 0);
+        //                    ten = new PedComponent(10, 0, 0, 0);
+        //                    eleven = new PedComponent(11, 67, 2, 0);
 
-                            if (xp >= 809000) // level 100
-                            {
-                                // black suit tie
-                                //zero = new PedComponent(0, -1, -1, 0);
-                                one = new PedComponent(1, 0, 0, 0);
-                                //two = new PedComponent(2, -1, -1, 0);
-                                three = new PedComponent(3, 33, 0, 0);
-                                four = new PedComponent(4, 24, 0, 0);
-                                //five = new PedComponent(5, -1, -1, 0);
-                                six = new PedComponent(6, 10, 0, 0);
-                                seven = new PedComponent(7, 28, 15, 0);
-                                eight = new PedComponent(8, 31, 0, 0);
-                                nine = new PedComponent(9, 0, 0, 0);
-                                ten = new PedComponent(10, 0, 0, 0);
-                                eleven = new PedComponent(11, 32, 0, 0);
+        //                    if (xp >= 809000) // level 100
+        //                    {
+        //                        // black suit tie
+        //                        //zero = new PedComponent(0, -1, -1, 0);
+        //                        one = new PedComponent(1, 0, 0, 0);
+        //                        //two = new PedComponent(2, -1, -1, 0);
+        //                        three = new PedComponent(3, 33, 0, 0);
+        //                        four = new PedComponent(4, 24, 0, 0);
+        //                        //five = new PedComponent(5, -1, -1, 0);
+        //                        six = new PedComponent(6, 10, 0, 0);
+        //                        seven = new PedComponent(7, 28, 15, 0);
+        //                        eight = new PedComponent(8, 31, 0, 0);
+        //                        nine = new PedComponent(9, 0, 0, 0);
+        //                        ten = new PedComponent(10, 0, 0, 0);
+        //                        eleven = new PedComponent(11, 32, 0, 0);
 
-                                if(xp >= 1820250) // level 150
-                                {
-                                    // white suit
-                                    //zero = new PedComponent(0, -1, -1, 0);
-                                    one = new PedComponent(1, 0, 0, 0);
-                                    //two = new PedComponent(2, -1, -1, 0);
-                                    three = new PedComponent(3, 4, 0, 0);
-                                    four = new PedComponent(4, 24, 0, 0);
-                                    //five = new PedComponent(5, -1, -1, 0);
-                                    six = new PedComponent(6, 10, 0, 0);
-                                    seven = new PedComponent(7, 11, 2, 0);
-                                    eight = new PedComponent(8, 31, 0, 0);
-                                    nine = new PedComponent(9, 0, 0, 0);
-                                    ten = new PedComponent(10, 0, 0, 0);
-                                    eleven = new PedComponent(11, 30, 5, 0);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+        //                        if(xp >= 1820250) // level 150
+        //                        {
+        //                            // white suit
+        //                            //zero = new PedComponent(0, -1, -1, 0);
+        //                            one = new PedComponent(1, 0, 0, 0);
+        //                            //two = new PedComponent(2, -1, -1, 0);
+        //                            three = new PedComponent(3, 4, 0, 0);
+        //                            four = new PedComponent(4, 24, 0, 0);
+        //                            //five = new PedComponent(5, -1, -1, 0);
+        //                            six = new PedComponent(6, 10, 0, 0);
+        //                            seven = new PedComponent(7, 11, 2, 0);
+        //                            eight = new PedComponent(8, 31, 0, 0);
+        //                            nine = new PedComponent(9, 0, 0, 0);
+        //                            ten = new PedComponent(10, 0, 0, 0);
+        //                            eleven = new PedComponent(11, 30, 5, 0);
+        //                        }
+        //                    }
+        //                }
+        //            }
+        //        }
+        //    }
 
-            if (changed)
-            {
-                //components.Add(zero); // always -1 -1
-                components.Add(one);
-                //components.Add(two); // always -1 -1
-                components.Add(three);
-                components.Add(four);
-                //components.Add(five); // always -1 -1
-                components.Add(six);
-                components.Add(seven);
-                components.Add(eight);
-                components.Add(nine);
-                components.Add(ten);
-                components.Add(eleven);
+        //    if (changed)
+        //    {
+        //        //components.Add(zero); // always -1 -1
+        //        components.Add(one);
+        //        //components.Add(two); // always -1 -1
+        //        components.Add(three);
+        //        components.Add(four);
+        //        //components.Add(five); // always -1 -1
+        //        components.Add(six);
+        //        components.Add(seven);
+        //        components.Add(eight);
+        //        components.Add(nine);
+        //        components.Add(ten);
+        //        components.Add(eleven);
 
-                style.PedComponents = components;
-            }
+        //        style.PedComponents = components;
+        //    }
 
 
-            return changed;
+        //    return changed;
 
-            // default components
-            //zero = new PedComponent(0, -1, -1, 0);
-            //one = new PedComponent(1, 57, 0, 0);
-            //two = new PedComponent(2, -1, -1, 0);
-            //three = new PedComponent(3, 41, 0, 0);
-            //four = new PedComponent(4, 98, 13, 0);
-            //five = new PedComponent(5, -1, -1, 0);
-            //six = new PedComponent(6, 71, 13, 0);
-            //seven = new PedComponent(7, 0, 0, 0);
-            //eight = new PedComponent(8, 15, 0, 0);
-            //nine = new PedComponent(9, 0, 0, 0);
-            //ten = new PedComponent(10, 0, 0, 0);
-            //eleven = new PedComponent(11, 251, 13, 0);
-        }
+        //    // default components
+        //    //zero = new PedComponent(0, -1, -1, 0);
+        //    //one = new PedComponent(1, 57, 0, 0);
+        //    //two = new PedComponent(2, -1, -1, 0);
+        //    //three = new PedComponent(3, 41, 0, 0);
+        //    //four = new PedComponent(4, 98, 13, 0);
+        //    //five = new PedComponent(5, -1, -1, 0);
+        //    //six = new PedComponent(6, 71, 13, 0);
+        //    //seven = new PedComponent(7, 0, 0, 0);
+        //    //eight = new PedComponent(8, 15, 0, 0);
+        //    //nine = new PedComponent(9, 0, 0, 0);
+        //    //ten = new PedComponent(10, 0, 0, 0);
+        //    //eleven = new PedComponent(11, 251, 13, 0);
+        //}
     }
 }

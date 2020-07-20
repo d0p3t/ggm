@@ -1,25 +1,22 @@
 ﻿using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Dapper;
+using Dapper.Contrib;
 using MySql.Data.MySqlClient;
 using Newtonsoft.Json;
 using CitizenFX.Core;
-using static CitizenFX.Core.Native.API;
 using GGSQL.Models;
 using GGSQL.Models.Styles;
+using Dapper.Contrib.Extensions;
+using System.Data;
 
 namespace GGSQL
 {
     public class MySqlDatabase
     {
-        // private static ConcurrentQueue<Action> m_callbackQueue;
-
         private static string m_connectionString;
-        private static bool _debug;
-        private static bool m_initialized;
         private static ServerLogger m_logger;
 
         //private readonly CustomTaskScheduler _scheduler;
@@ -42,12 +39,7 @@ namespace GGSQL
         internal MySqlDatabase(string connectionString, bool debug = false, ServerLogger logger = null)
         {
 
-            // m_callbackQueue = new ConcurrentQueue<Action>();
-
-            // Tick += OnTick;
-
             m_connectionString = connectionString;
-            _debug = debug;
             //_scheduler = new CustomTaskScheduler();
             m_logger = logger;
 
@@ -82,10 +74,9 @@ namespace GGSQL
                             Xp AS `Xp`,
                             Money AS `Money`,
                             LastConnected AS `LastConnected`,
-                            ClothingStyles AS `ClothingStyles`,
+                            ActiveUserOutfit AS `ActiveUserOutfit`,
                             Donator AS `Donator`,
-                            Moderator AS `Moderator`,
-                            UserOutfits AS `UserOutfits`
+                            Moderator AS `Moderator`
                         FROM
 	                        users
                         WHERE
@@ -141,29 +132,29 @@ namespace GGSQL
             }
         }
 
-        public async Task<bool> UpdateClothingStyles(int userId, List<ClothingStyle> clothingStyles)
-        {
-            var sql = @"UPDATE
-                            users
-                        SET 
-                            clothingStyles = @cs
-                        WHERE 
-                            id = @uId;";
+        //public async Task<bool> UpdateClothingStyles(int userId, List<ClothingStyle> clothingStyles)
+        //{
+        //    var sql = @"UPDATE
+        //                    users
+        //                SET 
+        //                    clothingStyles = @cs
+        //                WHERE 
+        //                    id = @uId;";
 
-            using (var db = new DbConnection(m_connectionString))
-            {
-                var affectedRows = await db.Connection.ExecuteAsync(sql, new { cs = clothingStyles, uId = userId });
+        //    using (var db = new DbConnection(m_connectionString))
+        //    {
+        //        var affectedRows = await db.Connection.ExecuteAsync(sql, new { cs = clothingStyles, uId = userId });
 
-                return affectedRows != 0 ? true : false;
-            }
-        }
+        //        return affectedRows != 0 ? true : false;
+        //    }
+        //}
 
         public async Task<User> CreateNewUser(Player player)
         {
             var sql = @"INSERT INTO users
-                            (licenseId, steamId, xblId, liveId, discordId, endpoint, clothingStyles)
+                            (licenseId, steamId, xblId, liveId, discordId, endpoint)
                         VALUES
-                            (@lid, @sid,  @xblid, @liveid, @did, @endpoint, @cstyles);
+                            (@lid, @sid,  @xblid, @liveid, @did, @endpoint);
                         SELECT LAST_INSERT_ID();";
 
             var user = new User();
@@ -178,7 +169,7 @@ namespace GGSQL
 
             using (var db = new DbConnection(m_connectionString))
             {
-                var dbResult = await db.Connection.ExecuteScalarAsync<int>(sql, new { lid = user.LicenseId, sid = user.SteamId, xblid = user.XblId, liveid = user.LiveId, did = user.DiscordId, endpoint = user.Endpoint, cstyles = user.ClothingStyles });
+                var dbResult = await db.Connection.ExecuteScalarAsync<int>(sql, new { lid = user.LicenseId, sid = user.SteamId, xblid = user.XblId, liveid = user.LiveId, did = user.DiscordId, endpoint = user.Endpoint });
                 user.Id = dbResult;
 
                 return user;
@@ -194,16 +185,16 @@ namespace GGSQL
                             deaths=@deaths,
                             xp=@xp,
                             money=@money,
-                            lastconnected=@now,
-                            clothingStyles=@cstyles
+                            activeUserOutfit=@outfitId,
+                            lastconnected=@now
                         WHERE 
                             id=@userId;";
 
             using (var db = new DbConnection(m_connectionString))
             {
-                var clothingStyles = JsonConvert.SerializeObject(user.ClothingStyles);
-                var affectedRows = await db.Connection.ExecuteAsync(sql, new { userId = user.Id, kills = user.Kills, deaths = user.Deaths, xp = user.Xp, money = user.Money, now = DateTime.UtcNow, cstyles = clothingStyles });
-                if(affectedRows != 0)
+                // var clothingStyles = JsonConvert.SerializeObject(user.ClothingStyles);
+                var affectedRows = await db.Connection.ExecuteAsync(sql, new { userId = user.Id, kills = user.Kills, deaths = user.Deaths, xp = user.Xp, money = user.Money, outfitId = user.ActiveUserOutfit, now = DateTime.UtcNow });
+                if (affectedRows != 0)
                 {
                     return true;
                 }
@@ -218,7 +209,7 @@ namespace GGSQL
 
             foreach (var user in users)
             {
-                var clothingStyles = JsonConvert.SerializeObject(user.ClothingStyles);
+                // var clothingStyles = JsonConvert.SerializeObject(user.ClothingStyles);
 
                 sql += $@"UPDATE
                             users
@@ -227,20 +218,32 @@ namespace GGSQL
                             deaths={user.Deaths},
                             xp={user.Xp},
                             money={user.Money},
-                            clothingStyles='{clothingStyles}'
+                            activeUserOutfit={user.ActiveUserOutfit}
                         WHERE 
                             id={user.Id};";
             }
 
-            using(var db = new DbConnection(m_connectionString))
+            using (var db = new DbConnection(m_connectionString))
             {
                 var affectedRows = await db.Connection.ExecuteAsync(sql);
-                if(affectedRows != 0)
+                if (affectedRows != 0)
                 {
                     return true;
                 }
 
                 return false;
+            }
+        }
+
+        public async Task<int> GetActiveUserOutfit(int userId)
+        {
+            var sql = @"SELECT activeUserOutfit FROM users WHERE id=@userId";
+
+            using (var db = new DbConnection(m_connectionString))
+            {
+                var oid = await db.Connection.ExecuteScalarAsync<int>(sql, new { userId = userId });
+                Debug.WriteLine($"OUTFIT ID OF ACTIVE OUTFIT IS {oid}");
+                return oid;
             }
         }
 
@@ -252,9 +255,9 @@ namespace GGSQL
                             (@e, @userId, @ip);
                         SELECT LAST_INSERT_ID();";
 
-            using(var db = new DbConnection(m_connectionString))
+            using (var db = new DbConnection(m_connectionString))
             {
-                var dbResult = await db.Connection.ExecuteScalarAsync<int>(sql, new { e = connection.Established, userId = connection.UserId, ip = connection.EndPoint});
+                var dbResult = await db.Connection.ExecuteScalarAsync<int>(sql, new { e = connection.Established, userId = connection.UserId, ip = connection.EndPoint });
                 connection.Id = dbResult;
 
                 return connection;
@@ -273,9 +276,9 @@ namespace GGSQL
 
             using (var db = new DbConnection(m_connectionString))
             {
-                var affectedRows = await db.Connection.ExecuteAsync(sql, new { id = connection.Id, dropped = DateTime.UtcNow, totalSeconds = (DateTime.UtcNow - connection.Established).TotalSeconds});
+                var affectedRows = await db.Connection.ExecuteAsync(sql, new { id = connection.Id, dropped = DateTime.UtcNow, totalSeconds = (DateTime.UtcNow - connection.Established).TotalSeconds });
 
-                if(affectedRows != 0)
+                if (affectedRows != 0)
                 {
                     return true;
                 }
@@ -305,7 +308,7 @@ namespace GGSQL
             {
                 var dbResult = await db.Connection.QueryAsync<Ban>(sql, new { now = DateTime.UtcNow });
 
-                if(dbResult.Count() > 0)
+                if (dbResult.Count() > 0)
                 {
                     return dbResult.ToList();
                 }
@@ -316,29 +319,16 @@ namespace GGSQL
 
         public async Task<GameRound> InsertGameRound(GameRound gameRound)
         {
-            var sql = @"INSERT INTO gamerounds
-                            (startTime, endTime, mapName, 
-                                winnerUserId, winnerRoundKills, winnerRoundDeaths)
-                        VALUES
-                            (@st, @et,@mn, @wuid, @wrk,@wrd);
-                        SELECT LAST_INSERT_ID();";
-
             using (var db = new DbConnection(m_connectionString))
             {
-                var dbResult = await db.Connection.ExecuteScalarAsync<int>(sql, new 
-                {   st = gameRound.StartTime, et = gameRound.EndTime, 
-                    mn = gameRound.MapName,  wuid = gameRound.WinnerUserId,
-                    wrk = gameRound.WinnerRoundKills, wrd = gameRound.WinnerRoundDeaths  
-                });
-
-                gameRound.Id = dbResult;
+                gameRound.Id = await db.Connection.InsertAsync(gameRound);
                 return gameRound;
             }
         }
 
         public async Task<List<Outfit>> GetOutfits()
         {
-            var sql = @"SELECT id, name, price, requiredXp, discount, enabled, components, createdAt, updatedAt
+            var sql = @"SELECT id, name, tebexPackageId, donatorExclusive, price, requiredXp, discount, enabled, components, createdAt, updatedAt
                             FROM outfits WHERE enabled = true";
 
             using (var db = new DbConnection(m_connectionString))
@@ -349,41 +339,38 @@ namespace GGSQL
             }
         }
 
-        public async Task<Outfit> InsertOutfit(Outfit outfit)
+        public async Task<List<GeneralItem>> GetGeneralItems()
         {
-            var sql = @"INSERT INTO outfits (name, price, requiredXp, discount, enabled, components, createdAt, updatedAt)
-                            VALUES (@name, @price, @xp, @d, @e, @comp, @ca, @ua);
-                            SELECT LAST_INSERT_ID();";
+            var sql = @"SELECT id, name, type, tebexPackageId, price, requiredXp, discount, enabled, extraData, createdAt, updatedAt
+                            FROM generalitems WHERE enabled = true";
 
             using (var db = new DbConnection(m_connectionString))
             {
-                var dbResult = await db.Connection.ExecuteScalarAsync<int>(sql, new
-                {
-                    name = outfit.Name,
-                    price = outfit.Price,
-                    xp = outfit.RequiredXp,
-                    d = outfit.Discount,
-                    e = outfit.Enabled,
-                    comp = outfit.Components,
-                    ca = outfit.CreatedAt,
-                    ua = outfit.UpdatedAt
-                });
+                var dbResult = await db.Connection.QueryAsync<GeneralItem>(sql);
 
-                outfit.Id = dbResult;
+                return dbResult.ToList();
+            }
+        }
+
+        public async Task<Outfit> InsertOutfit(Outfit outfit)
+        {
+            using (var db = new DbConnection(m_connectionString))
+            {
+                outfit.Id = await db.Connection.InsertAsync(outfit);
                 return outfit;
             }
         }
 
         public async Task<List<UserOutfit>> GetUserOutfits(int userId)
         {
-            var sql = @"SELECT uo.id, uo.user_id, uo.outfit_id, uo.created_at FROM UserOutfits uo
-                            INNER JOIN Outfits o ON uo.outfit_id = o.id WHERE ui.user_id = @userId";
+            var sql = @"SELECT uo.id, uo.userId, uo.outfitId, uo.createdAt FROM UserOutfits uo
+                            INNER JOIN Outfits o ON uo.outfitId = o.id WHERE uo.userId = @userId AND o.enabled = true";
 
             using (var db = new DbConnection(m_connectionString))
             {
                 var dbResult = await db.Connection.QueryAsync<UserOutfit>(sql, new { userId = userId });
 
-                if(dbResult.Count() > 0)
+                if (dbResult.Count() > 0)
                 {
                     return dbResult.ToList();
                 }
@@ -392,169 +379,108 @@ namespace GGSQL
             }
         }
 
-        public async Task<UserOutfit> InsertUserOutfit(UserOutfit userOutfit)
+        public async Task<List<UserGeneralItem>> GetUserGeneralItems(int userId)
         {
-            var sql = @"INSERT INTO useroutfits (userId, outfitId, createdAt)
-                            VALUES (@uid, @oid, @ca); SELECT LAST_INSERT_ID();";
+            var sql = @"SELECT uo.id, uo.userId, uo.itemId, uo.createdAt FROM UserGeneralItems uo
+                            INNER JOIN GeneralItems o ON uo.itemId = o.id WHERE uo.userId = @userId AND o.enabled = true";
 
             using (var db = new DbConnection(m_connectionString))
             {
-                var dbResult = await db.Connection.ExecuteScalarAsync<int>(sql, new
-                {
-                    uid = userOutfit.UserId,
-                    oid = userOutfit.OutfitId,
-                    ca = userOutfit.CreatedAt
-                });
+                var dbResult = await db.Connection.QueryAsync<UserGeneralItem>(sql, new { userId = userId });
 
-                userOutfit.Id = dbResult;
+                if (dbResult.Count() > 0)
+                {
+                    return dbResult.ToList();
+                }
+
+                return new List<UserGeneralItem>();
+            }
+        }
+
+        public async Task<UserOutfit> InsertUserOutfit(UserOutfit userOutfit)
+        {
+            using (var db = new DbConnection(m_connectionString))
+            {
+                userOutfit.Id = await db.Connection.InsertAsync(userOutfit);
                 return userOutfit;
             }
         }
 
-        public async Task<int> ExecuteAsync(string query, IDictionary<string, object> parameters)
+        public async Task<UserGeneralItem> InsertUserGeneralItem(UserGeneralItem userGeneralItem)
         {
-            int numberOfUpdatedRows = 0;
-
-            try
+            using (var db = new DbConnection(m_connectionString))
             {
-                using (var db = new DbConnection(m_connectionString))
-                {
-                    await db.Connection.OpenAsync();
-
-                    using (var command = db.Connection.CreateCommand())
-                    {
-                        BuildCommand(command, query, parameters);
-                        numberOfUpdatedRows = await command.ExecuteNonQueryAsync();
-                    }
-                }
+                userGeneralItem.Id = await db.Connection.InsertAsync(userGeneralItem);
+                return userGeneralItem;
             }
-            catch (Exception ex)
-            { m_logger.Exception("ExecuteAsync", ex); }
-
-            return numberOfUpdatedRows;
         }
 
-        public async Task<bool> TransactionAsync(IList<string> queries, IDictionary<string, object> parameters)
+        public async Task<int> DeleteUserOutfit(int outfitId, int userId)
         {
-            bool isSucceed = false;
+            var sql = @"DELETE FROM UserOutfits WHERE userId=@uid AND outfitId=@oid";
 
-            try
+            using (var db = new DbConnection(m_connectionString))
             {
-                using (var db = new DbConnection(m_connectionString))
+                var affectedRows = await db.Connection.ExecuteAsync(sql, new
                 {
-                    await db.Connection.OpenAsync();
+                    uid = userId,
+                    oid = outfitId
+                });
 
-                    using (var command = db.Connection.CreateCommand())
-                    {
-                        foreach (var parameter in parameters ?? Enumerable.Empty<KeyValuePair<string, object>>())
-                            command.Parameters.AddWithValue(parameter.Key, parameter.Value);
-
-                        using (var transaction = await db.Connection.BeginTransactionAsync())
-                        {
-                            command.Transaction = transaction;
-
-                            try
-                            {
-                                foreach (var query in queries)
-                                {
-                                    command.CommandText = query;
-                                    await command.ExecuteNonQueryAsync();
-                                }
-
-                                await transaction.CommitAsync();
-                                isSucceed = true;
-                            }
-                            catch (Exception ex)
-                            {
-                                m_logger.Exception("TransactionAsync", ex);
-
-                                try
-                                { await transaction.RollbackAsync(); }
-                                catch (Exception rollbackEx)
-                                { m_logger.Exception("TransactionAsync:Rollback", rollbackEx); }
-                            }
-                        }
-                    }
-                }
+                return affectedRows;
             }
-            catch (Exception ex)
-            { m_logger.Exception("TransactionAsync", ex); }
-
-            return isSucceed;
         }
 
-        public async Task<object> FetchScalarAsync(string query, IDictionary<string, object> parameters)
+        public async Task<int> DeleteUserGeneralItem(int itemId, int userId)
         {
-            object result = null;
+            var sql = @"DELETE FROM UserGeneralItems WHERE userId=@uid AND itemId=@oid";
 
-            try
+            using (var db = new DbConnection(m_connectionString))
             {
-                using (var db = new DbConnection(m_connectionString))
+                var affectedRows = await db.Connection.ExecuteAsync(sql, new
                 {
-                    await db.Connection.OpenAsync();
+                    uid = userId,
+                    oid = itemId
+                });
 
-                    using (var command = db.Connection.CreateCommand())
-                    {
-                        BuildCommand(command, query, parameters);
-                        result = await command.ExecuteScalarAsync();
-                    }
-                }
+                return affectedRows;
             }
-            catch (Exception ex)
-            { m_logger.Exception("FetchScalarAsync", ex); }
-
-            return result;
         }
 
-        public async Task<List<Dictionary<string, object>>> FetchAllAsync(string query, IDictionary<string, object> parameters)
+        public async Task UpdateUserOutfits(List<UserOutfit> userOutfits)
         {
-            var result = new List<Dictionary<string, Object>>();
-
-            try
+            using (var db = new DbConnection(m_connectionString))
             {
-                using (var db = new DbConnection(m_connectionString))
-                {
-                    await db.Connection.OpenAsync();
-
-                    using (var command = db.Connection.CreateCommand())
-                    {
-                        BuildCommand(command, query, parameters);
-
-                        using (var reader = await command.ExecuteReaderAsync())
-                        {
-                            while (await reader.ReadAsync())
-                            {
-                                result.Add(Enumerable.Range(0, reader.FieldCount).ToDictionary(
-                                    i => reader.GetName(i),
-                                    i => reader.IsDBNull(i) ? null : reader.GetValue(i)
-                                ));
-                            }
-                        }
-                    }
-                }
+                await db.Connection.UpdateAsync(userOutfits);
             }
-            catch (Exception ex)
-            { m_logger.Exception("FetchAllAsync", ex); }
-
-            return result;
         }
 
-        private static void BuildCommand(MySqlCommand command, string query, IDictionary<string, object> parameters)
+        public async Task<int> BuyUserOutfit(int userId, int outfitId)
         {
-            command.CommandText = query;
-
-            foreach (var parameter in parameters ?? Enumerable.Empty<KeyValuePair<string, object>>())
-                command.Parameters.AddWithValue(parameter.Key, parameter.Value);
+            using (var db = new DbConnection(m_connectionString))
+            {
+                DynamicParameters _params = new DynamicParameters();
+                _params.Add("@pSuccess", DbType.Int32, direction: ParameterDirection.Output);
+                _params.Add("@pUserId", userId);
+                _params.Add("@pOutfitId", outfitId);
+                await db.Connection.ExecuteAsync("UserBuyOutfit", _params, commandType: CommandType.StoredProcedure);
+                return _params.Get<int>("pSuccess");
+            }
         }
 
-        //private async static Task OnTick()
-        //{
-        //    while(m_callbackQueue.TryDequeue(out Action action))
-        //    {
-        //        action.Invoke();
-        //    }
+        public async Task<int> BuyUserBoost(int userId, int boostId)
+        {
+            using (var db = new DbConnection(m_connectionString))
+            {
+                DynamicParameters _params = new DynamicParameters();
+                _params.Add("@pSuccess", DbType.Int32, direction: ParameterDirection.Output);
+                _params.Add("@pUserId", userId);
+                _params.Add("@pItemId", boostId);
+                _params.Add("@pItemTypeId", 1);
 
-        //    await Task.FromResult(0);
-        //}
+                await db.Connection.ExecuteAsync("UserBuyBoost", new { pUserId = userId, pItemId = boostId, pItemTypeId = 1 }, commandType: CommandType.StoredProcedure);
+                return _params.Get<int>("pSuccess");
+            }
+        }
     }
 }
