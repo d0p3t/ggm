@@ -16,6 +16,6 @@ jobs:
       with:
         dotnet-version: '3.1.x'
     - name: Install dependencies
-      run: dotnet restore
+      run: dotnet restore GGSQL/GGSQL.csproj
     - name: Build GGSQL
       run: dotnet build GGSQL/GGSQL.csproj --configuration Release -p:PostBuildEvent= --no-restore
