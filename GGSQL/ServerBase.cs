@@ -46,7 +46,7 @@ namespace GGSQL
             EventHandlers["onServerResourceStart"] += new Action<string>(BaseOnServerResourceStart);
             EventHandlers["playerReady"] += new Action<Player>(OnPlayerReady);
             EventHandlers["gg_internal:updateXpMoney"] += new Action<int, int, int>(OnUpdateXpAndMoney);
-            EventHandlers["gg_internal:syncCache.Users"] += new Action<string>(OnUsersSync);
+            EventHandlers["gg_internal:syncUsers"] += new Action<string>(OnUsersSync);
             EventHandlers["gg_internal:syncUser"] += new Action<string, string>(OnUsersync);
             EventHandlers["gg_internal:syncWinner"] += new Action<string>(OnWinnerSync);
 
