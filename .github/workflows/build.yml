@@ -1,4 +1,9 @@
-name: Build GGM Projects
+name: 'Verify GGSQL Project'
+description: 'Builds GGSQL project of the Gun Game Management module'
+author: 'd0p3t'
+branding:
+  icon: play
+  color: green
 
 on:
   push:
@@ -10,12 +15,12 @@ jobs:
     runs-on: windows-latest
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@main
     - name: Setup .NET Core
       uses: actions/setup-dotnet@v1
       with:
-        dotnet-version: 3.1.101
+        dotnet-version: '3.1.x'
     - name: Install dependencies
       run: dotnet restore
     - name: Build GGSQL
-      run: dotnet build GGSQL/GGSQL.csproj --configuration Release -p:PostBuildEvent=
+      run: dotnet build GGSQL/GGSQL.csproj --configuration Release -p:PostBuildEvent= --no-restore
