@@ -242,7 +242,6 @@ namespace GGSQL
             using (var db = new DbConnection(m_connectionString))
             {
                 var oid = await db.Connection.ExecuteScalarAsync<int>(sql, new { userId = userId });
-                Debug.WriteLine($"OUTFIT ID OF ACTIVE OUTFIT IS {oid}");
                 return oid;
             }
         }
@@ -363,8 +362,8 @@ namespace GGSQL
 
         public async Task<List<UserOutfit>> GetUserOutfits(int userId)
         {
-            var sql = @"SELECT uo.id, uo.userId, uo.outfitId, uo.createdAt FROM UserOutfits uo
-                            INNER JOIN Outfits o ON uo.outfitId = o.id WHERE uo.userId = @userId AND o.enabled = true";
+            var sql = @"SELECT uo.id, uo.userId, uo.outfitId, uo.createdAt FROM useroutfits uo
+                            INNER JOIN outfits o ON uo.outfitId = o.id WHERE uo.userId = @userId AND o.enabled = true";
 
             using (var db = new DbConnection(m_connectionString))
             {
@@ -381,7 +380,7 @@ namespace GGSQL
 
         public async Task<List<UserGeneralItem>> GetUserGeneralItems(int userId)
         {
-            var sql = @"SELECT uo.id, uo.userId, uo.itemId, uo.createdAt FROM UserGeneralItems uo
+            var sql = @"SELECT uo.id, uo.userId, uo.itemId, uo.createdAt FROM usergeneralitems uo
                             INNER JOIN GeneralItems o ON uo.itemId = o.id WHERE uo.userId = @userId AND o.enabled = true";
 
             using (var db = new DbConnection(m_connectionString))
@@ -417,7 +416,7 @@ namespace GGSQL
 
         public async Task<int> DeleteUserOutfit(int outfitId, int userId)
         {
-            var sql = @"DELETE FROM UserOutfits WHERE userId=@uid AND outfitId=@oid";
+            var sql = @"DELETE FROM useroutfits WHERE userId=@uid AND outfitId=@oid";
 
             using (var db = new DbConnection(m_connectionString))
             {
@@ -433,7 +432,7 @@ namespace GGSQL
 
         public async Task<int> DeleteUserGeneralItem(int itemId, int userId)
         {
-            var sql = @"DELETE FROM UserGeneralItems WHERE userId=@uid AND itemId=@oid";
+            var sql = @"DELETE FROM usergeneralitems WHERE userId=@uid AND itemId=@oid";
 
             using (var db = new DbConnection(m_connectionString))
             {
