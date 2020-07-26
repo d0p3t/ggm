@@ -117,6 +117,19 @@ namespace GGSQL
                     user.NetId = Convert.ToInt32(player.Handle);
 
                     Cache.Users.Add(user);
+
+                    API.ExecuteCommand($"remove_principal license:{licenseId} gg.donator");
+                    API.ExecuteCommand($"remove_principal license:{licenseId} gg.moderator");
+
+                    if (user.Donator)
+                    {
+                        API.ExecuteCommand($"add_principal license:{licenseId} gg.donator");
+                    }
+
+                    if (user.Moderator)
+                    {
+                        API.ExecuteCommand($"add_principal license:{licenseId} gg.moderator");
+                    }
                 }
 
                 try
@@ -234,7 +247,6 @@ namespace GGSQL
                 {
                     _logger.Exception("OnPlayerReady - Adding new connection -", ex);
                 }
-
             }
             catch (Exception ex)
             {
