@@ -159,13 +159,10 @@ namespace GGSQL
                 {
                     try
                     {
-                        Debug.WriteLine($"{user.ActiveUserOutfit} active outfit id");
                         var style = await m_shopController.GetActiveUserOutfit(player, user.ActiveUserOutfit, user.Id);
 
-                        if(user.ActiveUserOutfit == 0)
+                        if(user.ActiveUserOutfit == 0 && style != null)
                         {
-                            Debug.WriteLine($"it's 0 and the style we have is..");
-                            Debug.WriteLine($"{style.Id}");
                             user.ActiveUserOutfit = style.Id;
                         }
 
@@ -217,8 +214,6 @@ namespace GGSQL
                     {
                         Debug.WriteLine("HERE");
                     }
-
-
                 }
                 catch (Exception ex)
                 {
