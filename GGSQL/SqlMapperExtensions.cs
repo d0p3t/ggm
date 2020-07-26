@@ -302,8 +302,10 @@ namespace Dapper.Contrib.Extensions
                 }
             }
 
-            TypeTableName[type.TypeHandle] = name;
-            return name;
+            var lowerName = name.ToLowerInvariant();
+            TypeTableName[type.TypeHandle] = lowerName;
+
+            return lowerName;
         }
 
         /// <summary>
