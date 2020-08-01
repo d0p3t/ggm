@@ -47,7 +47,7 @@ namespace GGSQL
             EventHandlers["playerReady"] += new Action<Player>(OnPlayerReady);
             EventHandlers["gg_internal:updateXpMoney"] += new Action<int, int, int>(OnUpdateXpAndMoney);
             EventHandlers["gg_internal:syncUsers"] += new Action<string>(OnUsersSync);
-            EventHandlers["gg_internal:syncUser"] += new Action<string, string>(OnUsersync);
+            EventHandlers["gg_internal:syncUser"] += new Action<string, string>(OnUserSync);
             EventHandlers["gg_internal:syncWinner"] += new Action<string>(OnWinnerSync);
 
             Tick += SaveTick;
@@ -363,25 +363,6 @@ namespace GGSQL
                         user.Money = syncUser.Money;
 
                         await m_shopController.UpdateOutfits(user.NetId, false);
-
-                        //if (!user.Donator)
-                        //{
-                            //var style = user.ClothingStyles.FirstOrDefault(cs => cs.IsActiveStyle);
-                            //var compfour = style.PedComponents.FirstOrDefault(p => p.ComponentId == 4);
-
-
-                            //var changed = UpdateStyle(ref style, user.Xp);
-                            //if (changed)
-                            //{
-                            //    if (compfour.DrawableId != style.PedComponents.First(p => p.ComponentId == 4).DrawableId)
-                            //    {
-                            //        if (Players[syncUser.NetId] != null)
-                            //        {
-                            //            Players[syncUser.NetId].TriggerEvent("setActiveStyle", JsonConvert.SerializeObject(style));
-                            //        }
-                            //    }
-                            //}
-                        //}
                     }
                     catch (Exception ex)
                     {
@@ -391,15 +372,15 @@ namespace GGSQL
                     count++;
                 }
 
-                _logger.Info($"Synced {count} Cache.Users");
+                _logger.Info($"Synced {count} Users");
             }
             catch (Exception e)
             {
-                _logger.Exception("OnCache.UsersSync", e);
+                _logger.Exception("OnUsersSync", e);
             }
         }
 
-        private async void OnUsersync(string data, string name)
+        private async void OnUserSync(string data, string name)
         {
             try
             {
