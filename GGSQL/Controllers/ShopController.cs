@@ -18,7 +18,8 @@ namespace GGSQL.Controllers
         OUTFIT,
         XPBOOST,
         CURRENCY,
-        DONATION
+        DONATION,
+        WEAPONTINT
     }
 
     public class ShopController : BaseScript
@@ -28,6 +29,7 @@ namespace GGSQL.Controllers
 
         private ConcurrentDictionary<int, List<UserOutfit>> m_userOutfits = new ConcurrentDictionary<int, List<UserOutfit>>();
         private ConcurrentDictionary<int, List<UserGeneralItem>> m_userGeneralItems = new ConcurrentDictionary<int, List<UserGeneralItem>>();
+        private ConcurrentDictionary<int, List<UserWeaponTint>> m_userWeaponTints = new ConcurrentDictionary<int, List<UserWeaponTint>>();
 
         private static readonly DateTime baseTime = new DateTime(1970, 1, 1);
 
@@ -40,14 +42,257 @@ namespace GGSQL.Controllers
             Tick += FirstTick;
 
             EventHandlers["shop:buyOutfit"] += new Action<Player, int>(OnBuyOutfit);
+            EventHandlers["shop-request-data"] += new Action<Player>(OnShopRequestData);
+            EventHandlers["shop-request-buy-outfit"] += new Action<Player, int>(OnShopRequestBuyOutfit);
+            EventHandlers["shop-request-equip-outfit"] += new Action<Player, int>(OnShopRequestEquipOutfit);
+            EventHandlers["shop-request-buy-tint"] += new Action<Player, int>(OnShopRequestBuyTint);
+            EventHandlers["shop-request-equip-tint"] += new Action<Player, int>(OnShopRequestEquipTint);
+
+
 
             RegisterCommand("shopcontrolleractivateonetimeitem", new Action<int, List<object>, string>(OnActivateOneTimeItem), true);
             RegisterCommand("shopcontrollerdeactivateonetimeitem", new Action<int, List<object>, string>(OnActivateOneTimeItem), true);
 
-            RegisterCommand("claim", new Action<int, List<object>, string>(OnClaimFreeOutfits), false);
+            // RegisterCommand("claim", new Action<int, List<object>, string>(OnClaimFreeOutfits), false);
             RegisterCommand("equip", new Action<int, List<object>, string>(OnEquipOutfit), false);
             RegisterCommand("outfits", new Action<int, List<object>, string>(OnListOutfits), false);
 
+        }
+
+        private async void OnShopRequestEquipOutfit([FromSource]Player player, int outfitId)
+        {
+            List<UserOutfit> userOutfits;
+            m_userOutfits.TryGetValue(Convert.ToInt32(player.Handle), out userOutfits);
+
+            if (userOutfits == null)
+            {
+                player.TriggerEvent("shop:prompt", "<b>You don't have any outfits!</b>");
+                return;
+            }
+
+            var userOutfit = userOutfits.FirstOrDefault(uo => uo.OutfitId == outfitId);
+            if(userOutfit == null)
+            {
+                player.TriggerEvent("shop:prompt", "You do not own this outfit!");
+                return;
+            }
+
+            var outfit = Cache.Outfits.FirstOrDefault(o => o.Id == outfitId);
+            if(outfit == null)
+            {
+                player.TriggerEvent("shop:prompt", "Outfit doesn't exist?!");
+                return;
+            }
+
+            var clothingStyle = new ClothingStyle(outfitId)
+            {
+                PedComponents = outfit.Components
+            };
+
+            player.TriggerEvent("setActiveStyle", JsonConvert.SerializeObject(clothingStyle));
+
+            var user = Cache.Users.FirstOrDefault(u => u.NetId == Convert.ToInt32(player.Handle));
+            if (user != null)
+            {
+                user.ActiveUserOutfit = userOutfit.Id;
+            }
+
+            player.TriggerEvent("shop:prompt", "<b>Equipped Outfit!</b> Press ESC return to game.");
+
+            await Delay(0);
+        }
+
+        private async void OnShopRequestEquipTint([FromSource]Player player, int tintId)
+        {
+            List<UserWeaponTint> userWeaponTints;
+            m_userWeaponTints.TryGetValue(Convert.ToInt32(player.Handle), out userWeaponTints);
+
+            if (userWeaponTints == null)
+            {
+                player.TriggerEvent("shop:prompt", "<b>You don't have any weapon tints!</b>");
+                return;
+            }
+
+            var userWeaponTint = userWeaponTints.FirstOrDefault(uo => uo.WeaponTintId == tintId);
+            if (userWeaponTint == null)
+            {
+                player.TriggerEvent("shop:prompt", "You do not own this weapon tint!");
+                return;
+            }
+
+            var weaponTint = Cache.WeaponTints.FirstOrDefault(o => o.Id == tintId);
+            if (weaponTint == null)
+            {
+                player.TriggerEvent("shop:prompt", "Weapon tint doesn't exist?!");
+                return;
+            }
+
+            player.TriggerEvent("setWeaponTint", weaponTint.TintId, weaponTint.IsMk2);
+
+            var user = Cache.Users.FirstOrDefault(u => u.NetId == Convert.ToInt32(player.Handle));
+            if (user != null)
+            {
+                user.ActiveUserWeaponTint = userWeaponTint.Id;
+            }
+
+            player.TriggerEvent("shop:prompt", "<b>Equipped Weapon Tint!</b> Press ESC return to game.");
+
+            await Delay(0);
+        }
+
+        private async void OnShopRequestBuyOutfit([FromSource]Player player, int itemId)
+        {
+            var user = Cache.Users.FirstOrDefault(u => u.NetId == Convert.ToInt32(player.Handle));
+
+            if (user == null)
+            {
+                player.TriggerEvent("request-buy-outfit-result", false, itemId, "Could not find profile");
+                return;
+            }
+
+            var outfit = Cache.Outfits.FirstOrDefault(o => o.Id == itemId);
+            if(outfit == null)
+            {
+                return;
+            }
+
+            var result = await BuyItemForUser(user.Id, user.NetId, itemId, ShopItemType.OUTFIT, false);
+            var success = false;
+
+            if (result == "Success")
+                success = true;
+
+            player.TriggerEvent("request-buy-outfit-result", success, itemId, result);
+        }
+
+        private async void OnShopRequestBuyTint([FromSource]Player player, int itemId)
+        {
+            Debug.WriteLine("We are here");
+            var user = Cache.Users.FirstOrDefault(u => u.NetId == Convert.ToInt32(player.Handle));
+
+            if (user == null)
+            {
+                player.TriggerEvent("request-buy-outfit-result", false, itemId, "Could not find profile");
+                return;
+            }
+
+            var tint = Cache.WeaponTints.FirstOrDefault(o => o.Id == itemId);
+            if (tint == null)
+            {
+                Debug.WriteLine($"{itemId} doesn't exist");
+                return;
+            }
+
+            Debug.WriteLine("Lets buy it!");
+            var result = await BuyItemForUser(user.Id, user.NetId, itemId, ShopItemType.WEAPONTINT, false);
+            var success = false;
+
+            if (result == "Success")
+                success = true;
+
+            Debug.WriteLine("All good!");
+            player.TriggerEvent("request-buy-tint-result", success, itemId, result);
+        }
+
+        private void OnShopRequestData([FromSource]Player player)
+        {
+            try
+            {
+                List<UserOutfit> userOutfits;
+                m_userOutfits.TryGetValue(Convert.ToInt32(player.Handle), out userOutfits);
+
+                if(userOutfits == null)
+                {
+                    return;
+                }
+
+                var outfits = Cache.Outfits.Where(o => o.Enabled);
+                var shopOutfits = new List<UserShopOutfit>();
+
+                foreach (var outfit in outfits)
+                {
+                    var shopOutfit = new UserShopOutfit
+                    {
+                        id = outfit.Id,
+                        slug = outfit.Name,
+                        title = outfit.Name,
+                        owned = false,
+                        price = outfit.Price,
+                        xp = outfit.RequiredXp,
+                        description = outfit.Description,
+                        image = outfit.Image
+                    };
+                    shopOutfits.Add(shopOutfit);
+                }
+
+                foreach (var outfit in userOutfits)
+                {
+                    var toChange = shopOutfits.FirstOrDefault(so => so.id == outfit.OutfitId);
+                    if(toChange != null)
+                        toChange.owned = true;
+                }
+
+                player.TriggerEvent("update-outfits-data", JsonConvert.SerializeObject(shopOutfits));
+
+                Debug.WriteLine("We are here now");
+                List<UserWeaponTint> userWeaponTints;
+                m_userWeaponTints.TryGetValue(Convert.ToInt32(player.Handle), out userWeaponTints);
+
+                if(userWeaponTints == null)
+                {
+                    userWeaponTints = new List<UserWeaponTint>();
+                }
+
+                Debug.WriteLine("Alright so lets do the weapon tint stuff");
+                var weaponTints = Cache.WeaponTints.Where(o => o.Enabled);
+                var shopWeaponTints = new List<UserShopWeaponTint>();
+
+                foreach (var tint in weaponTints)
+                {
+                    var shopTint = new UserShopWeaponTint
+                    {
+                        id = tint.Id,
+                        slug = tint.Name,
+                        title = tint.Name,
+                        owned = false,
+                        price = tint.Price,
+                        xp = tint.RequiredXp,
+                        description = tint.Description,
+                        image = tint.Image
+                    };
+                    shopWeaponTints.Add(shopTint);
+                }
+
+                foreach (var tint in userWeaponTints)
+                {
+                    var toChange = shopWeaponTints.FirstOrDefault(so => so.id == tint.WeaponTintId);
+                    if (toChange != null)
+                        toChange.owned = true;
+                }
+
+                Debug.WriteLine($"Sending {shopWeaponTints.Count} tints");
+                Debug.WriteLine($"We own {shopWeaponTints.Count(x => x.owned)}");
+                player.TriggerEvent("update-weapontints-data", JsonConvert.SerializeObject(shopWeaponTints));
+
+                var user = Cache.Users.FirstOrDefault(u => u.NetId == Convert.ToInt32(player.Handle));
+
+                if (user == null)
+                {
+                    return;
+                }
+
+                var profile = new UserShopProfile
+                {
+                    money = user.Money,
+                    xp = user.Xp
+                };
+
+                player.TriggerEvent("update-profile-data", JsonConvert.SerializeObject(profile));
+            }
+            catch (Exception ex)
+            {
+                m_logger.Exception("OnShopRequestData", ex);
+            }
         }
 
         public async Task<bool> UpdateOutfits(int netId, bool checkCommerce)
@@ -100,7 +345,7 @@ namespace GGSQL.Controllers
             }
             catch (Exception ex)
             {
-                m_logger.Exception("OnClaimFreeOutfits", ex);
+                m_logger.Exception("UpdateOutfits", ex);
                 player.TriggerEvent("shop:prompt", "Something went wrong updating outfits");
                 return false;
             }
@@ -223,7 +468,7 @@ namespace GGSQL.Controllers
             }
         }
 
-        private async void OnListOutfits(int source, List<object> args, string raw)
+        private void OnListOutfits(int source, List<object> args, string raw)
         {
             try
             {
@@ -321,30 +566,186 @@ namespace GGSQL.Controllers
                 {
                     CreatedAt = DateTime.UtcNow,
                     Discount = 0.0f,
-                    Enabled = true,
+                    Enabled = false,
                     RequiredXp = 0,
-                    Price = 0,
-                    Name = "Default (Grey)",
+                    Price = 14999,
+                    DonatorExclusive = true,
+                    Name = "Halo (Black)",
                     Components = new List<PedComponent>
                     {
-                         new PedComponent(1 ,57, 0, 0),
-                         new PedComponent(3, 41, 0, 0),
-                         new PedComponent(4, 98, 13, 0),
-                         new PedComponent(6, 71, 13, 0),
+                         new PedComponent(1 ,29, 0, 0),
+                         new PedComponent(3, 33, 0, 0),
+                         new PedComponent(4, 31, 0, 0),
+                         new PedComponent(6, 24, 0, 0),
                          new PedComponent(7, 0, 0, 0),
-                         new PedComponent(8, 15, 0, 0),
+                         new PedComponent(8, 55, 0, 0),
                          new PedComponent(9, 0, 0, 0),
                          new PedComponent(10, 0, 0, 0),
-                         new PedComponent(11, 251, 13, 0),
+                         new PedComponent(11, 53, 0, 0),
                     },
+                    Description = "Master Chief Black Edition",
                     TebexPackageId = 0
                 };
 
                 //var insertedOutfit = await m_database.InsertOutfit(toInsertOutfit);
                 //Debug.WriteLine($"Inserted Outfit [{insertedOutfit.Name}] with ID [{insertedOutfit.Id}]");
 
+                toInsertOutfit = new Outfit
+                {
+                    CreatedAt = DateTime.UtcNow,
+                    Discount = 0.0f,
+                    Enabled = false,
+                    RequiredXp = 0,
+                    Price = 29999,
+                    Name = "Fighter (White)",
+                    Components = new List<PedComponent>
+                    {
+                         new PedComponent(1 ,16, 6, 0),
+                         new PedComponent(3, 44, 0, 0),
+                         new PedComponent(4, 31, 2, 0),
+                         new PedComponent(6, 25, 0, 0),
+                         new PedComponent(7, 0, 0, 0),
+                         new PedComponent(8, 56, 0, 0),
+                         new PedComponent(9, 0, 0, 0),
+                         new PedComponent(10, 0, 0, 0),
+                         new PedComponent(11, 53, 0, 0),
+                    },
+                    Description = "Don't fight me",
+                    TebexPackageId = 0
+                };
+
+                //insertedOutfit = await m_database.InsertOutfit(toInsertOutfit);
+                //Debug.WriteLine($"Inserted Outfit [{insertedOutfit.Name}] with ID [{insertedOutfit.Id}]");
+
+                toInsertOutfit = new Outfit
+                {
+                    CreatedAt = DateTime.UtcNow,
+                    Discount = 0.0f,
+                    Enabled = false,
+                    RequiredXp = 0,
+                    Price = 6449,
+                    Name = "Vagos Masked",
+                    Components = new List<PedComponent>
+                    {
+                         new PedComponent(1 ,50, 1, 0),
+                         new PedComponent(3, 5, 0, 0),
+                         new PedComponent(4, 7, 1, 0),
+                         new PedComponent(6, 12, 0, 0),
+                         new PedComponent(7, 17, 2, 0),
+                         new PedComponent(8, 15, 0, 0),
+                         new PedComponent(9, 0, 0, 0),
+                         new PedComponent(10, 0, 0, 0),
+                         new PedComponent(11, 5, 0, 0),
+                    },
+                    Description = "Don't fuck wid me putto",
+                    TebexPackageId = 0
+                };
+
+                //insertedOutfit = await m_database.InsertOutfit(toInsertOutfit);
+                //Debug.WriteLine($"Inserted Outfit [{insertedOutfit.Name}] with ID [{insertedOutfit.Id}]");
+
+                toInsertOutfit = new Outfit
+                {
+                    CreatedAt = DateTime.UtcNow,
+                    Discount = 0.0f,
+                    Enabled = true,
+                    RequiredXp = 11649,
+                    Price = 1495,
+                    Name = "The Mechanic (Red)",
+                    Components = new List<PedComponent>
+                    {
+                         new PedComponent(1 ,0, 0, 0),
+                         new PedComponent(3, 4, 0, 0),
+                         new PedComponent(4, 38, 0, 0),
+                         new PedComponent(6, 24, 0, 0),
+                         new PedComponent(7, 0, 0, 0),
+                         new PedComponent(8, 15, 0, 0),
+                         new PedComponent(9, 0, 0, 0),
+                         new PedComponent(10, 0, 0, 0),
+                         new PedComponent(11, 65, 0, 0),
+                    },
+                    Description = "Look like you're gonna fix some enemies up",
+                    TebexPackageId = 0
+                };
+
+                //insertedOutfit = await m_database.InsertOutfit(toInsertOutfit);
+                //Debug.WriteLine($"Inserted Outfit [{insertedOutfit.Name}] with ID [{insertedOutfit.Id}]");
+
+                toInsertOutfit = new Outfit
+                {
+                    CreatedAt = DateTime.UtcNow,
+                    Discount = 0.0f,
+                    Enabled = true,
+                    RequiredXp = 11649,
+                    Price = 595,
+                    Name = "The Mechanic (Grey)",
+                    Components = new List<PedComponent>
+                    {
+                         new PedComponent(1 ,0, 0, 0),
+                         new PedComponent(3, 4, 0, 0),
+                         new PedComponent(4, 38, 3, 0),
+                         new PedComponent(6, 24, 0, 0),
+                         new PedComponent(7, 0, 0, 0),
+                         new PedComponent(8, 15, 0, 0),
+                         new PedComponent(9, 0, 0, 0),
+                         new PedComponent(10, 0, 0, 0),
+                         new PedComponent(11, 65, 3, 0),
+                    },
+                    Description = "You're a simple man and you wanna fix stuff",
+                    TebexPackageId = 0
+                };
+
+                //insertedOutfit = await m_database.InsertOutfit(toInsertOutfit);
+                //Debug.WriteLine($"Inserted Outfit [{insertedOutfit.Name}] with ID [{insertedOutfit.Id}]");
+
+                toInsertOutfit = new Outfit
+                {
+                    CreatedAt = DateTime.UtcNow,
+                    Discount = 0.0f,
+                    Enabled = true,
+                    RequiredXp = 11649,
+                    Price = 750,
+                    Name = "The Mechanic (Black)",
+                    Components = new List<PedComponent>
+                    {
+                         new PedComponent(1 ,0, 0, 0),
+                         new PedComponent(3, 4, 0, 0),
+                         new PedComponent(4, 39, 1, 0),
+                         new PedComponent(6, 27, 0, 0),
+                         new PedComponent(7, 0, 0, 0),
+                         new PedComponent(8, 15, 0, 0),
+                         new PedComponent(9, 0, 0, 0),
+                         new PedComponent(10, 0, 0, 0),
+                         new PedComponent(11, 66, 1, 0),
+                    },
+                    Description = "A good middleground to make sure you break enemies",
+                    TebexPackageId = 0
+                };
+
+                var newWeaponTint = new WeaponTint
+                {
+                    CreatedAt = DateTime.UtcNow,
+                    Discount = 0.0f,
+                    Enabled = true,
+                    RequiredXp = 0,
+                    Price = 0,
+                    Name = "Black (Default)",
+                    TintId = 0,
+                    Description = "Black Weapon Tint for Non-MK2 weapons.",
+                    TebexPackageId = 0
+                };
+
+                //var insertedWeaponTint = await m_database.InsertWeaponTint(newWeaponTint);
+                //Debug.WriteLine($"Inserted WeaponTint [{insertedWeaponTint.Name}] with ID [{insertedWeaponTint.Id}]");
+
+
+                //insertedOutfit = await m_database.InsertOutfit(toInsertOutfit);
+                //Debug.WriteLine($"Inserted Outfit [{insertedOutfit.Name}] with ID [{insertedOutfit.Id}]");
+
+
                 Cache.Outfits = await m_database.GetOutfits();
                 Cache.GeneralItems = await m_database.GetGeneralItems();
+                Cache.WeaponTints = await m_database.GetWeaponTints();
 
                 //Outfits.ForEach(outfit => Debug.WriteLine(JsonConvert.SerializeObject(outfit)));
                 //GeneralItems.ForEach(item => Debug.WriteLine(JsonConvert.SerializeObject(item)));
@@ -386,6 +787,9 @@ namespace GGSQL.Controllers
                     // donation
                     result = 1;
                     break;
+                case ShopItemType.WEAPONTINT:
+                    result = await m_database.BuyUserWeaponTint(userId, itemId);
+                    break;
                 default:
                     result = -99;
                     break;
@@ -395,11 +799,15 @@ namespace GGSQL.Controllers
             switch (result)
             {
                 case 0:
-                    return "Already owned";
+                    return "You already own this item";
                 case -1:
-                    return "Not enough money";
+                    return "You don't have enough money";
+                case -2:
+                    return "You need more XP for this item";
+                case -3:
+                    return "Item is for donators only";
                 case -99:
-                    return "Unknown Item";
+                    return "Something went wrong";
                 default:
                     bool commerce = false;
 
@@ -425,6 +833,9 @@ namespace GGSQL.Controllers
                 case ShopItemType.CURRENCY:
                     break;
                 case ShopItemType.DONATION:
+                    break;
+                case ShopItemType.WEAPONTINT:
+                    await GetUserWeaponTints(userId, netId, commerce);
                     break;
                 default:
                     break;
@@ -575,8 +986,6 @@ namespace GGSQL.Controllers
                         }
                     }
 
-                    // m_logger.Info($"Player {playerSrc} has {webshopOutfits.Count} NEW owned Tebex outfits.");
-
                     outfits.AddRange(webshopOutfits);
 
                     if(player != null && (webshopOutfits.Count != 0 | deactivatedOutfits != 0))
@@ -603,6 +1012,97 @@ namespace GGSQL.Controllers
                 }
 
                 player.TriggerEvent("shop:ownedoutfits", JsonConvert.SerializeObject(ownedOutfitIds));
+            }
+        }
+
+        public async Task GetUserWeaponTints(int userId, int netId, bool startedCommerceSession)
+        {
+            List<UserWeaponTint> tints = new List<UserWeaponTint>();
+            var player = Players[netId];
+
+            if (player == null)
+            {
+                return;
+            }
+
+            try
+            {
+                tints = await m_database.GetUserWeaponTints(userId);
+
+                var playerSrc = netId.ToString();
+
+                // No outfits so we need to add the default one
+                if (tints.Count == 0)
+                {
+                    var defaultTint = Cache.Outfits.FirstOrDefault(o => o.Name == "Black (Default)");
+                    if (defaultTint != null)
+                    {
+                        await BuyItemForUser(userId, netId, defaultTint.Id, ShopItemType.WEAPONTINT, false);
+                        tints = await m_database.GetUserWeaponTints(userId);
+                    }
+                }
+
+                if (startedCommerceSession)
+                {
+                    List<UserWeaponTint> webshopTints = new List<UserWeaponTint>();
+                    int deactivatedTints = 0;
+                    foreach (var tint in Cache.WeaponTints)
+                    {
+                        if (tint.TebexPackageId != 0)
+                        {
+                            bool existsInData = tints.Exists(o => o.WeaponTintId == tint.Id);
+                            bool owned = DoesPlayerOwnSkuExt(playerSrc, tint.TebexPackageId);
+                            if (owned)
+                            {
+                                if (!existsInData)
+                                {
+                                    var userWeaponTint = new UserWeaponTint
+                                    {
+                                        WeaponTintId = tint.Id,
+                                        UserId = userId,
+                                        CreatedAt = DateTime.UtcNow
+                                    };
+                                    userWeaponTint = await m_database.InsertUserWeaponTint(userWeaponTint);
+                                    webshopTints.Add(userWeaponTint);
+                                }
+                            }
+                            else
+                            {
+                                //if (existsInData)
+                                //{
+                                //    var deletedItems = await m_database.DeleteUserOutfit(outfit.Id, userId);
+                                //    deactivatedOutfits += deletedItems;
+                                //}
+                            }
+                        }
+                    }
+
+                    tints.AddRange(webshopTints);
+
+                    if (player != null && (webshopTints.Count != 0 | deactivatedTints != 0))
+                    {
+                        player.TriggerEvent("shop:webshopoutfits_count_update", webshopTints.Count, deactivatedTints);
+                    }
+                }
+
+                m_userWeaponTints.AddOrUpdate(netId, tints, (key, oldValue) => oldValue = tints);
+            }
+            catch (Exception ex)
+            {
+                m_logger.Exception("GetUserOutfits", ex);
+                player.TriggerEvent("shop:webshop_error_loading");
+            }
+            finally
+            {
+                m_userWeaponTints.TryGetValue(netId, out tints);
+
+                List<int> ownedTintIds = new List<int>();
+                foreach (var tint in tints)
+                {
+                    ownedTintIds.Add(tint.WeaponTintId);
+                }
+
+                player.TriggerEvent("shop:ownedTints", JsonConvert.SerializeObject(ownedTintIds));
             }
         }
 

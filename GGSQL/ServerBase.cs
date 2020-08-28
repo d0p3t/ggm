@@ -117,20 +117,23 @@ namespace GGSQL
                     user.NetId = Convert.ToInt32(player.Handle);
 
                     Cache.Users.Add(user);
-
-                    API.ExecuteCommand($"remove_principal license:{licenseId} gg.donator");
-                    API.ExecuteCommand($"remove_principal license:{licenseId} gg.moderator");
-
-                    if (user.Donator)
-                    {
-                        API.ExecuteCommand($"add_principal license:{licenseId} gg.donator");
-                    }
-
-                    if (user.Moderator)
-                    {
-                        API.ExecuteCommand($"add_principal license:{licenseId} gg.moderator");
-                    }
                 }
+
+                API.ExecuteCommand($"remove_ace license:{licenseId} gg.donator");
+                API.ExecuteCommand($"remove_ace license:{licenseId} gg.moderator");
+
+                if (user.Donator)
+                {
+                    API.ExecuteCommand($"add_ace license:{licenseId} gg.donator");
+                }
+
+                if (user.Moderator)
+                {
+                    API.ExecuteCommand($"add_ace license:{licenseId} gg.moderator");
+                }
+
+                _logger.Info($"gg.donator: {API.IsPlayerAceAllowed(player.Handle, "ggdonator")} because donator: {user.Donator}");
+                _logger.Info($"gg.moderator: {API.IsPlayerAceAllowed(player.Handle, "ggmoderator")} because moderator: {user.Moderator}");
 
                 try
                 {
@@ -159,6 +162,7 @@ namespace GGSQL
                     }
 
                     await m_shopController.GetUserOutfits(user.Id, user.NetId, loadCommerce);
+                    await m_shopController.GetUserWeaponTints(user.Id, user.NetId, loadCommerce);
                     // await m_shopController.GetUserGeneralItems(user.Id, user.NetId, loadCommerce);
                     // m_shopController.ActivateGeneralItems(user.Id, user.NetId);
                 }
@@ -166,7 +170,6 @@ namespace GGSQL
                 {
                     _logger.Exception("OnPlayerReady - ShopController stuff", ex);
                 }
-
 
                 try
                 {
@@ -423,8 +426,8 @@ namespace GGSQL
         {
             try
             {
+                _logger.Info(data);
                 var parsed = JsonConvert.DeserializeObject<GameRound>(data);
-
                 var gameRound = await _mysqlDb.InsertGameRound(parsed);
 
                 _logger.Info($"[GAME] Round saved. Winner had [{gameRound.WinnerRoundKills}] kills and [{gameRound.WinnerRoundDeaths}] deaths.");

@@ -9,5 +9,6 @@ namespace GGSQL
         public static List<Connection> Connections = new List<Connection>();
         public static List<Outfit> Outfits = new List<Outfit>();
         public static List<GeneralItem> GeneralItems = new List<GeneralItem>();
+        public static List<WeaponTint> WeaponTints = new List<WeaponTint>();
     }
 }

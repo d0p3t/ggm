@@ -41,5 +41,6 @@ namespace GGSQL.Models
         public bool Donator { get; set; } = false;
         public bool Moderator { get; set; } = false;
         public int ActiveUserOutfit { get; set; }
+        public int ActiveUserWeaponTint { get; set; }
     }
 }

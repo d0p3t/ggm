@@ -75,6 +75,7 @@ namespace GGSQL
                             Money AS `Money`,
                             LastConnected AS `LastConnected`,
                             ActiveUserOutfit AS `ActiveUserOutfit`,
+                            ActiveUserWeaponTint AS `ActiveUserWeaponTint`,
                             Donator AS `Donator`,
                             Moderator AS `Moderator`
                         FROM
@@ -186,6 +187,7 @@ namespace GGSQL
                             xp=@xp,
                             money=@money,
                             activeUserOutfit=@outfitId,
+                            activeUserWeaponTint=@weaponTintId,
                             lastconnected=@now
                         WHERE 
                             id=@userId;";
@@ -193,7 +195,7 @@ namespace GGSQL
             using (var db = new DbConnection(m_connectionString))
             {
                 // var clothingStyles = JsonConvert.SerializeObject(user.ClothingStyles);
-                var affectedRows = await db.Connection.ExecuteAsync(sql, new { userId = user.Id, kills = user.Kills, deaths = user.Deaths, xp = user.Xp, money = user.Money, outfitId = user.ActiveUserOutfit, now = DateTime.UtcNow });
+                var affectedRows = await db.Connection.ExecuteAsync(sql, new { userId = user.Id, kills = user.Kills, deaths = user.Deaths, xp = user.Xp, money = user.Money, outfitId = user.ActiveUserOutfit, weaponTintId = user.ActiveUserWeaponTint, now = DateTime.UtcNow });
                 if (affectedRows != 0)
                 {
                     return true;
@@ -218,7 +220,8 @@ namespace GGSQL
                             deaths={user.Deaths},
                             xp={user.Xp},
                             money={user.Money},
-                            activeUserOutfit={user.ActiveUserOutfit}
+                            activeUserOutfit={user.ActiveUserOutfit},
+                            activeUserWeaponTint={user.ActiveUserWeaponTint}
                         WHERE 
                             id={user.Id};";
             }
@@ -238,6 +241,17 @@ namespace GGSQL
         public async Task<int> GetActiveUserOutfit(int userId)
         {
             var sql = @"SELECT activeUserOutfit FROM users WHERE id=@userId";
+
+            using (var db = new DbConnection(m_connectionString))
+            {
+                var oid = await db.Connection.ExecuteScalarAsync<int>(sql, new { userId = userId });
+                return oid;
+            }
+        }
+
+        public async Task<int> GetActiveUserWeaponTint(int userId)
+        {
+            var sql = @"SELECT activeUserWeaponTint FROM users WHERE id=@userId";
 
             using (var db = new DbConnection(m_connectionString))
             {
@@ -327,7 +341,7 @@ namespace GGSQL
 
         public async Task<List<Outfit>> GetOutfits()
         {
-            var sql = @"SELECT id, name, tebexPackageId, donatorExclusive, price, requiredXp, discount, enabled, components, createdAt, updatedAt
+            var sql = @"SELECT id, name, tebexPackageId, donatorExclusive, price, requiredXp, discount, enabled, description, image, components, createdAt, updatedAt
                             FROM outfits WHERE enabled = true";
 
             using (var db = new DbConnection(m_connectionString))
@@ -351,12 +365,34 @@ namespace GGSQL
             }
         }
 
+        public async Task<List<WeaponTint>> GetWeaponTints()
+        {
+            var sql = @"SELECT id, name, tebexPackageId, price, requiredXp, discount, enabled, isMk2, tintId, createdAt, updatedAt
+                            FROM weapontints WHERE enabled = true";
+
+            using (var db = new DbConnection(m_connectionString))
+            {
+                var dbResult = await db.Connection.QueryAsync<WeaponTint>(sql);
+
+                return dbResult.ToList();
+            }
+        }
+
         public async Task<Outfit> InsertOutfit(Outfit outfit)
         {
             using (var db = new DbConnection(m_connectionString))
             {
                 outfit.Id = await db.Connection.InsertAsync(outfit);
                 return outfit;
+            }
+        }
+
+        public async Task<WeaponTint> InsertWeaponTint(WeaponTint weaponTint)
+        {
+            using (var db = new DbConnection(m_connectionString))
+            {
+                weaponTint.Id = await db.Connection.InsertAsync(weaponTint);
+                return weaponTint;
             }
         }
 
@@ -396,6 +432,24 @@ namespace GGSQL
             }
         }
 
+        public async Task<List<UserWeaponTint>> GetUserWeaponTints(int userId)
+        {
+            var sql = @"SELECT uo.id, uo.userId, uo.weaponTintId, uo.createdAt FROM userweapontints uo
+                            INNER JOIN weapontints o ON uo.weaponTintId = o.id WHERE uo.userId = @userId AND o.enabled = true";
+
+            using (var db = new DbConnection(m_connectionString))
+            {
+                var dbResult = await db.Connection.QueryAsync<UserWeaponTint>(sql, new { userId = userId });
+
+                if (dbResult.Count() > 0)
+                {
+                    return dbResult.ToList();
+                }
+
+                return new List<UserWeaponTint>();
+            }
+        }
+
         public async Task<UserOutfit> InsertUserOutfit(UserOutfit userOutfit)
         {
             using (var db = new DbConnection(m_connectionString))
@@ -411,6 +465,15 @@ namespace GGSQL
             {
                 userGeneralItem.Id = await db.Connection.InsertAsync(userGeneralItem);
                 return userGeneralItem;
+            }
+        }
+
+        public async Task<UserWeaponTint> InsertUserWeaponTint(UserWeaponTint userWeaponTint)
+        {
+            using (var db = new DbConnection(m_connectionString))
+            {
+                userWeaponTint.Id = await db.Connection.InsertAsync(userWeaponTint);
+                return userWeaponTint;
             }
         }
 
@@ -478,6 +541,19 @@ namespace GGSQL
                 _params.Add("@pItemTypeId", 1);
 
                 await db.Connection.ExecuteAsync("UserBuyBoost", new { pUserId = userId, pItemId = boostId, pItemTypeId = 1 }, commandType: CommandType.StoredProcedure);
+                return _params.Get<int>("pSuccess");
+            }
+        }
+
+        public async Task<int> BuyUserWeaponTint(int userId, int weaponTintId)
+        {
+            using (var db = new DbConnection(m_connectionString))
+            {
+                DynamicParameters _params = new DynamicParameters();
+                _params.Add("@pSuccess", DbType.Int32, direction: ParameterDirection.Output);
+                _params.Add("@pUserId", userId);
+                _params.Add("@pWeaponTintId", weaponTintId);
+                await db.Connection.ExecuteAsync("UserBuyWeaponTint", _params, commandType: CommandType.StoredProcedure);
                 return _params.Get<int>("pSuccess");
             }
         }

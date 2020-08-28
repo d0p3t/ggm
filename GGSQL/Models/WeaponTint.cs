@@ -1,10 +1,8 @@
-﻿using GGSQL.Models.Styles;
-using System;
-using System.Collections.Generic;
+﻿using System;
 
 namespace GGSQL.Models
 {
-    public class Outfit
+    public class WeaponTint
     {
         public int Id { get; set; }
         public string Name { get; set; }
@@ -16,7 +14,8 @@ namespace GGSQL.Models
         public string Description { get; set; }
         public int TebexPackageId { get; set; } = 0;
         public bool DonatorExclusive { get; set; } = false;
-        public List<PedComponent> Components { get; set; } = new List<PedComponent>();
+        public bool IsMk2 { get; set; } = false;
+        public int TintId { get; set; } = 0;
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
     }
