@@ -167,30 +167,26 @@ namespace GGSQL.Controllers
 
         private async void OnShopRequestBuyTint([FromSource]Player player, int itemId)
         {
-            Debug.WriteLine("We are here");
             var user = Cache.Users.FirstOrDefault(u => u.NetId == Convert.ToInt32(player.Handle));
 
             if (user == null)
             {
-                player.TriggerEvent("request-buy-outfit-result", false, itemId, "Could not find profile");
+                player.TriggerEvent("request-buy-tint-result", false, itemId, "Could not find profile");
                 return;
             }
 
             var tint = Cache.WeaponTints.FirstOrDefault(o => o.Id == itemId);
             if (tint == null)
             {
-                Debug.WriteLine($"{itemId} doesn't exist");
                 return;
             }
 
-            Debug.WriteLine("Lets buy it!");
             var result = await BuyItemForUser(user.Id, user.NetId, itemId, ShopItemType.WEAPONTINT, false);
             var success = false;
 
             if (result == "Success")
                 success = true;
 
-            Debug.WriteLine("All good!");
             player.TriggerEvent("request-buy-tint-result", success, itemId, result);
         }
 
@@ -234,7 +230,6 @@ namespace GGSQL.Controllers
 
                 player.TriggerEvent("update-outfits-data", JsonConvert.SerializeObject(shopOutfits));
 
-                Debug.WriteLine("We are here now");
                 List<UserWeaponTint> userWeaponTints;
                 m_userWeaponTints.TryGetValue(Convert.ToInt32(player.Handle), out userWeaponTints);
 
@@ -242,8 +237,6 @@ namespace GGSQL.Controllers
                 {
                     userWeaponTints = new List<UserWeaponTint>();
                 }
-
-                Debug.WriteLine("Alright so lets do the weapon tint stuff");
                 var weaponTints = Cache.WeaponTints.Where(o => o.Enabled);
                 var shopWeaponTints = new List<UserShopWeaponTint>();
 
@@ -270,8 +263,6 @@ namespace GGSQL.Controllers
                         toChange.owned = true;
                 }
 
-                Debug.WriteLine($"Sending {shopWeaponTints.Count} tints");
-                Debug.WriteLine($"We own {shopWeaponTints.Count(x => x.owned)}");
                 player.TriggerEvent("update-weapontints-data", JsonConvert.SerializeObject(shopWeaponTints));
 
                 var user = Cache.Users.FirstOrDefault(u => u.NetId == Convert.ToInt32(player.Handle));

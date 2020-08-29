@@ -367,7 +367,7 @@ namespace GGSQL
 
         public async Task<List<WeaponTint>> GetWeaponTints()
         {
-            var sql = @"SELECT id, name, tebexPackageId, price, requiredXp, discount, enabled, isMk2, tintId, createdAt, updatedAt
+            var sql = @"SELECT id, name, tebexPackageId, donatorExclusive, price, requiredXp, discount, enabled, isMk2, tintId, image, description, createdAt, updatedAt
                             FROM weapontints WHERE enabled = true";
 
             using (var db = new DbConnection(m_connectionString))
