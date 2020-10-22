@@ -10,5 +10,6 @@ namespace GGSQL.Models
     {
         public int money { get; set; }
         public int xp { get; set; }
+        public bool donator { get; set; }
     }
 }
