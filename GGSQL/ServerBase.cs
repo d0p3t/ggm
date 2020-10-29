@@ -119,21 +119,19 @@ namespace GGSQL
                     Cache.Users.Add(user);
                 }
 
-                API.ExecuteCommand($"remove_ace license:{licenseId} gg.donator");
-                API.ExecuteCommand($"remove_ace license:{licenseId} gg.moderator");
-
                 if (user.Donator)
                 {
-                    API.ExecuteCommand($"add_ace license:{licenseId} gg.donator");
+                    API.ExecuteCommand($"add_principal identifier.license:{licenseId} group.donator");
                 }
 
                 if (user.Moderator)
                 {
-                    API.ExecuteCommand($"add_ace license:{licenseId} gg.moderator");
+                    API.ExecuteCommand($"add_principal identifier.license:{licenseId} group.moderator");
                 }
 
-                _logger.Info($"gg.donator: {API.IsPlayerAceAllowed(player.Handle, "ggdonator")} because donator: {user.Donator}");
-                _logger.Info($"gg.moderator: {API.IsPlayerAceAllowed(player.Handle, "ggmoderator")} because moderator: {user.Moderator}");
+                //_logger.Info($"gg.donator: {API.IsPlayerAceAllowed(player.Handle, "gg.donator")} for license:{user.LicenseId}");
+                //_logger.Info($"gg.moderator: {API.IsPlayerAceAllowed(player.Handle, "gg.moderator")} for license:{user.LicenseId}");
+                TriggerEvent("gg_internal:updateTags", user.NetId);
 
                 try
                 {
@@ -176,10 +174,16 @@ namespace GGSQL
                     try
                     {
                         var style = await m_shopController.GetActiveUserOutfit(player, user.ActiveUserOutfit, user.Id);
-
                         if(user.ActiveUserOutfit == 0 && style != null)
                         {
                             user.ActiveUserOutfit = style.Id;
+                        }
+
+                        var tint = await m_shopController.GetActiveUserWeaponTint(player, user.ActiveUserWeaponTint, user.Id);
+
+                        if(user.ActiveUserWeaponTint == 0 && tint != null)
+                        {
+                            user.ActiveUserWeaponTint = tint.Id;
                         }
 
                         List<PedComponent> components = new List<PedComponent>
@@ -191,6 +195,8 @@ namespace GGSQL
                             new PedComponent(8, 15, 0, 2), // Accessoires
                             new PedComponent(11, 251, 13, 2) // Torso2
                         };
+
+                        int weaponTintIndex = 0;
 
                         try
                         {
@@ -204,6 +210,16 @@ namespace GGSQL
                                 }
                             }
 
+                            if(tint != null)
+                            {
+                                var weaponTint = Cache.WeaponTints.FirstOrDefault(t => t.Id == tint.WeaponTintId);
+
+                                if (weaponTint != null)
+                                {
+                                    weaponTintIndex = weaponTint.TintId;
+                                }
+                            }
+
                             try
                             {
                                 var clothingStyle = new ClothingStyle(1)
@@ -213,7 +229,7 @@ namespace GGSQL
                                     User_id = user.Id
                                 };
 
-                                TriggerEvent("gg_internal:playerReady", JsonConvert.SerializeObject(user), JsonConvert.SerializeObject(clothingStyle));
+                                TriggerEvent("gg_internal:playerReady", JsonConvert.SerializeObject(user), JsonConvert.SerializeObject(clothingStyle), weaponTintIndex);
                             }
                             catch (Exception ex)
                             {
@@ -256,7 +272,7 @@ namespace GGSQL
                 _logger.Exception("OnPlayerReady - Other -", ex);
             }
 
-            _logger.Info($"[JOIN] {player.Name} joined. (IP: {player.EndPoint})");
+            _logger.Info($"[JOIN] {player.Name} joined. (IP: {player.EndPoint})^r^7");
         }
 
         public void OnUpdateXpAndMoney(int netId, int addedXp, int addedMoney)
@@ -437,162 +453,5 @@ namespace GGSQL
                 _logger.Exception("OnCache.Usersync", e);
             }
         }
-
-        //private bool UpdateStyle(ref ClothingStyle style, int xp)
-        //{
-        //    List<PedComponent> components = new List<PedComponent>();
-
-        //    //PedComponent zero = null;
-        //    PedComponent one = null;
-        //    //PedComponent two = null;
-        //    PedComponent three = null;
-        //    PedComponent four = null;
-        //    //PedComponent five = null;
-        //    PedComponent six = null;
-        //    PedComponent seven = null;
-        //    PedComponent eight = null;
-        //    PedComponent nine = null;
-        //    PedComponent ten = null;
-        //    PedComponent eleven = null;
-        //    bool changed = false;
-
-        //    if (xp >= 8090) // level 10
-        //    {
-        //        // 1318 very much the same
-        //        //zero = new PedComponent(0, -1, -1, 0);
-        //        one = new PedComponent(1, 57, 0, 0);
-        //        //two = new PedComponent(2, -1, -1, 0);
-        //        three = new PedComponent(3, 41, 0, 0);
-        //        four = new PedComponent(4, 97, 18, 0);
-        //        //five = new PedComponent(5, -1, -1, 0);
-        //        six = new PedComponent(6, 70, 18, 0);
-        //        seven = new PedComponent(7, 0, 0, 0);
-        //        eight = new PedComponent(8, 15, 0, 0);
-        //        nine = new PedComponent(9, 0, 0, 0);
-        //        ten = new PedComponent(10, 0, 0, 0);
-        //        eleven = new PedComponent(11, 251, 18, 0);
-        //        changed = true;
-
-        //        if (xp >= 50562) // level 25
-        //        {
-        //            // 1317
-        //            //zero = new PedComponent(0, -1, -1, 0);
-        //            one = new PedComponent(1, 57, 0, 0);
-        //            //two = new PedComponent(2, -1, -1, 0);
-        //            three = new PedComponent(3, 41, 0, 0);
-        //            four = new PedComponent(4, 97, 0, 0);
-        //            //five = new PedComponent(5, -1, -1, 0);
-        //            six = new PedComponent(6, 70, 0, 0);
-        //            seven = new PedComponent(7, 0, 0, 0);
-        //            eight = new PedComponent(8, 15, 0, 0);
-        //            nine = new PedComponent(9, 0, 0, 0);
-        //            ten = new PedComponent(10, 0, 0, 0);
-        //            eleven = new PedComponent(11, 253, 0, 0);
-
-        //            if (xp >= 202250) // level 50
-        //            {
-        //                // 1320
-        //                //zero = new PedComponent(0, -1, -1, 0);
-        //                one = new PedComponent(1, 57, 0, 0);
-        //                //two = new PedComponent(2, -1, -1, 0);
-        //                three = new PedComponent(3, 41, 0, 0);
-        //                four = new PedComponent(4, 98, 6, 0);
-        //                //five = new PedComponent(5, -1, -1, 0);
-        //                six = new PedComponent(6, 71, 14, 0);
-        //                seven = new PedComponent(7, 0, 0, 0);
-        //                eight = new PedComponent(8, 15, 0, 0);
-        //                nine = new PedComponent(9, 0, 0, 0);
-        //                ten = new PedComponent(10, 0, 0, 0);
-        //                eleven = new PedComponent(11, 253, 6, 0);
-
-        //                if (xp >= 455062) // level 75
-        //                {
-        //                    // hazmat suit yellow
-        //                    //zero = new PedComponent(0, -1, -1, 0);
-        //                    one = new PedComponent(1, 46, 0, 0);
-        //                    //two = new PedComponent(2, -1, -1, 0);
-        //                    three = new PedComponent(3, 88, 0, 0);
-        //                    four = new PedComponent(4, 40, 2, 0);
-        //                    //five = new PedComponent(5, -1, -1, 0);
-        //                    six = new PedComponent(6, 25, 0, 0);
-        //                    seven = new PedComponent(7, 0, 0, 0);
-        //                    eight = new PedComponent(8, 62, 2, 0);
-        //                    nine = new PedComponent(9, 0, 0, 0);
-        //                    ten = new PedComponent(10, 0, 0, 0);
-        //                    eleven = new PedComponent(11, 67, 2, 0);
-
-        //                    if (xp >= 809000) // level 100
-        //                    {
-        //                        // black suit tie
-        //                        //zero = new PedComponent(0, -1, -1, 0);
-        //                        one = new PedComponent(1, 0, 0, 0);
-        //                        //two = new PedComponent(2, -1, -1, 0);
-        //                        three = new PedComponent(3, 33, 0, 0);
-        //                        four = new PedComponent(4, 24, 0, 0);
-        //                        //five = new PedComponent(5, -1, -1, 0);
-        //                        six = new PedComponent(6, 10, 0, 0);
-        //                        seven = new PedComponent(7, 28, 15, 0);
-        //                        eight = new PedComponent(8, 31, 0, 0);
-        //                        nine = new PedComponent(9, 0, 0, 0);
-        //                        ten = new PedComponent(10, 0, 0, 0);
-        //                        eleven = new PedComponent(11, 32, 0, 0);
-
-        //                        if(xp >= 1820250) // level 150
-        //                        {
-        //                            // white suit
-        //                            //zero = new PedComponent(0, -1, -1, 0);
-        //                            one = new PedComponent(1, 0, 0, 0);
-        //                            //two = new PedComponent(2, -1, -1, 0);
-        //                            three = new PedComponent(3, 4, 0, 0);
-        //                            four = new PedComponent(4, 24, 0, 0);
-        //                            //five = new PedComponent(5, -1, -1, 0);
-        //                            six = new PedComponent(6, 10, 0, 0);
-        //                            seven = new PedComponent(7, 11, 2, 0);
-        //                            eight = new PedComponent(8, 31, 0, 0);
-        //                            nine = new PedComponent(9, 0, 0, 0);
-        //                            ten = new PedComponent(10, 0, 0, 0);
-        //                            eleven = new PedComponent(11, 30, 5, 0);
-        //                        }
-        //                    }
-        //                }
-        //            }
-        //        }
-        //    }
-
-        //    if (changed)
-        //    {
-        //        //components.Add(zero); // always -1 -1
-        //        components.Add(one);
-        //        //components.Add(two); // always -1 -1
-        //        components.Add(three);
-        //        components.Add(four);
-        //        //components.Add(five); // always -1 -1
-        //        components.Add(six);
-        //        components.Add(seven);
-        //        components.Add(eight);
-        //        components.Add(nine);
-        //        components.Add(ten);
-        //        components.Add(eleven);
-
-        //        style.PedComponents = components;
-        //    }
-
-
-        //    return changed;
-
-        //    // default components
-        //    //zero = new PedComponent(0, -1, -1, 0);
-        //    //one = new PedComponent(1, 57, 0, 0);
-        //    //two = new PedComponent(2, -1, -1, 0);
-        //    //three = new PedComponent(3, 41, 0, 0);
-        //    //four = new PedComponent(4, 98, 13, 0);
-        //    //five = new PedComponent(5, -1, -1, 0);
-        //    //six = new PedComponent(6, 71, 13, 0);
-        //    //seven = new PedComponent(7, 0, 0, 0);
-        //    //eight = new PedComponent(8, 15, 0, 0);
-        //    //nine = new PedComponent(9, 0, 0, 0);
-        //    //ten = new PedComponent(10, 0, 0, 0);
-        //    //eleven = new PedComponent(11, 251, 13, 0);
-        //}
     }
 }

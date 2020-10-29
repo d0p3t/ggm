@@ -8,8 +8,6 @@ using GGSQL.Models;
 using GGSQL.Models.Styles;
 using Newtonsoft.Json;
 using System.Linq;
-using System.Runtime.InteropServices;
-using System.Security.Policy;
 
 namespace GGSQL.Controllers
 {
@@ -213,6 +211,7 @@ namespace GGSQL.Controllers
                         slug = outfit.Name,
                         title = outfit.Name,
                         owned = false,
+                        donator = outfit.DonatorExclusive,
                         price = outfit.Price,
                         xp = outfit.RequiredXp,
                         description = outfit.Description,
@@ -248,6 +247,7 @@ namespace GGSQL.Controllers
                         slug = tint.Name,
                         title = tint.Name,
                         owned = false,
+                        donator = tint.DonatorExclusive,
                         price = tint.Price,
                         xp = tint.RequiredXp,
                         description = tint.Description,
@@ -275,7 +275,8 @@ namespace GGSQL.Controllers
                 var profile = new UserShopProfile
                 {
                     money = user.Money,
-                    xp = user.Xp
+                    xp = user.Xp,
+                    donator = user.Donator
                 };
 
                 player.TriggerEvent("update-profile-data", JsonConvert.SerializeObject(profile));
@@ -384,6 +385,26 @@ namespace GGSQL.Controllers
 
             return userOutfit;
         }
+
+        public async Task<UserWeaponTint> GetActiveUserWeaponTint(Player player, int activeUserWeaponTintId, int userId)
+        {
+            List<UserWeaponTint> userWeaponTints;
+            m_userWeaponTints.TryGetValue(Convert.ToInt32(player.Handle), out userWeaponTints);
+
+            if (userWeaponTints == null)
+                userWeaponTints = new List<UserWeaponTint>();
+
+            var userWeaponTint = userWeaponTints.FirstOrDefault(uwt => uwt.Id == activeUserWeaponTintId);
+
+            if(userWeaponTint == null)
+            {
+                var userWeaponTintId = await m_database.GetActiveUserWeaponTint(userId);
+                userWeaponTint = userWeaponTints.FirstOrDefault(uwt => uwt.Id == userWeaponTintId);
+            }
+
+            return userWeaponTint;
+        }
+
         private async void OnEquipOutfit(int source, List<object> args, string raw)
         {
             var _source = source;
@@ -557,29 +578,59 @@ namespace GGSQL.Controllers
                 {
                     CreatedAt = DateTime.UtcNow,
                     Discount = 0.0f,
-                    Enabled = false,
+                    Enabled = true,
                     RequiredXp = 0,
-                    Price = 14999,
-                    DonatorExclusive = true,
-                    Name = "Halo (Black)",
+                    Price = 0,
+                    DonatorExclusive = false,
+                    Name = "Scarecrow (Halloween 2020)",
                     Components = new List<PedComponent>
                     {
-                         new PedComponent(1 ,29, 0, 0),
-                         new PedComponent(3, 33, 0, 0),
-                         new PedComponent(4, 31, 0, 0),
-                         new PedComponent(6, 24, 0, 0),
+                         new PedComponent(1 ,138, 2, 0),
+                         new PedComponent(3, 17, 0, 0),
+                         new PedComponent(4, 107, 9, 0),
+                         new PedComponent(6, 84, 0, 0),
                          new PedComponent(7, 0, 0, 0),
-                         new PedComponent(8, 55, 0, 0),
+                         new PedComponent(8, 15, 0, 0),
                          new PedComponent(9, 0, 0, 0),
                          new PedComponent(10, 0, 0, 0),
-                         new PedComponent(11, 53, 0, 0),
+                         new PedComponent(11, 275, 2, 0),
                     },
-                    Description = "Master Chief Black Edition",
-                    TebexPackageId = 0
+                    Description = "LIMITED EDITION Halloween",
+                    TebexPackageId = 0,
+                    Image = "scarecrow_hw2020.png"
                 };
 
                 //var insertedOutfit = await m_database.InsertOutfit(toInsertOutfit);
                 //Debug.WriteLine($"Inserted Outfit [{insertedOutfit.Name}] with ID [{insertedOutfit.Id}]");
+
+                toInsertOutfit = new Outfit
+                {
+                    CreatedAt = DateTime.UtcNow,
+                    Discount = 0.0f,
+                    Enabled = false,
+                    RequiredXp = 10000,
+                    Price = 5000,
+                    DonatorExclusive = false,
+                    Name = "Oldschool Pilot",
+                    Components = new List<PedComponent>
+                    {
+                         new PedComponent(1 ,27, 0, 0),
+                         new PedComponent(3, 16, 0, 0),
+                         new PedComponent(4, 8, 0, 0),
+                         new PedComponent(6, 27, 0, 0),
+                         new PedComponent(7, 0, 0, 0),
+                         new PedComponent(8, 15, 0, 0),
+                         new PedComponent(9, 0, 0, 0),
+                         new PedComponent(10, 0, 0, 0),
+                         new PedComponent(11, 48, 0, 0),
+                    },
+                    Description = "Fly high in the sky to victory with this old school pilot outfit.",
+                    TebexPackageId = 0
+                };
+
+                //insertedOutfit = await m_database.InsertOutfit(toInsertOutfit);
+                //Debug.WriteLine($"Inserted Outfit [{insertedOutfit.Name}] with ID [{insertedOutfit.Id}]");
+
 
                 toInsertOutfit = new Outfit
                 {
@@ -640,22 +691,23 @@ namespace GGSQL.Controllers
                     CreatedAt = DateTime.UtcNow,
                     Discount = 0.0f,
                     Enabled = true,
-                    RequiredXp = 11649,
-                    Price = 1495,
-                    Name = "The Mechanic (Red)",
+                    RequiredXp = 0,
+                    Price = 0,
+                    Name = "Death Pilot",
+                    DonatorExclusive = true,
                     Components = new List<PedComponent>
                     {
-                         new PedComponent(1 ,0, 0, 0),
-                         new PedComponent(3, 4, 0, 0),
-                         new PedComponent(4, 38, 0, 0),
-                         new PedComponent(6, 24, 0, 0),
+                         new PedComponent(1 ,29, 4, 0),
+                         new PedComponent(3, 33, 0, 0),
+                         new PedComponent(4, 9, 0, 0),
+                         new PedComponent(6, 12, 6, 0),
                          new PedComponent(7, 0, 0, 0),
                          new PedComponent(8, 15, 0, 0),
                          new PedComponent(9, 0, 0, 0),
                          new PedComponent(10, 0, 0, 0),
-                         new PedComponent(11, 65, 0, 0),
+                         new PedComponent(11, 48, 0, 0),
                     },
-                    Description = "Look like you're gonna fix some enemies up",
+                    Description = "The sky is not the limit for this death masked pilot. Exclusive for Sponsors.",
                     TebexPackageId = 0
                 };
 
@@ -667,22 +719,22 @@ namespace GGSQL.Controllers
                     CreatedAt = DateTime.UtcNow,
                     Discount = 0.0f,
                     Enabled = true,
-                    RequiredXp = 11649,
-                    Price = 595,
-                    Name = "The Mechanic (Grey)",
+                    RequiredXp = 0,
+                    Price = 600,
+                    Name = "Gangsta (Common)",
                     Components = new List<PedComponent>
                     {
                          new PedComponent(1 ,0, 0, 0),
                          new PedComponent(3, 4, 0, 0),
-                         new PedComponent(4, 38, 3, 0),
-                         new PedComponent(6, 24, 0, 0),
+                         new PedComponent(4, 7, 6, 0),
+                         new PedComponent(6, 14, 9, 0),
                          new PedComponent(7, 0, 0, 0),
                          new PedComponent(8, 15, 0, 0),
                          new PedComponent(9, 0, 0, 0),
                          new PedComponent(10, 0, 0, 0),
-                         new PedComponent(11, 65, 3, 0),
+                         new PedComponent(11, 14, 13, 0),
                     },
-                    Description = "You're a simple man and you wanna fix stuff",
+                    Description = "This man is from the streets and shouldn't be messed with!",
                     TebexPackageId = 0
                 };
 
@@ -694,24 +746,27 @@ namespace GGSQL.Controllers
                     CreatedAt = DateTime.UtcNow,
                     Discount = 0.0f,
                     Enabled = true,
-                    RequiredXp = 11649,
-                    Price = 750,
-                    Name = "The Mechanic (Black)",
+                    RequiredXp = 18202,
+                    Price = 999,
+                    Name = "Red Vagos",
                     Components = new List<PedComponent>
                     {
-                         new PedComponent(1 ,0, 0, 0),
+                         new PedComponent(1 ,50, 1, 0),
                          new PedComponent(3, 4, 0, 0),
-                         new PedComponent(4, 39, 1, 0),
-                         new PedComponent(6, 27, 0, 0),
+                         new PedComponent(4, 1, 15, 0),
+                         new PedComponent(6, 7, 0, 0),
                          new PedComponent(7, 0, 0, 0),
-                         new PedComponent(8, 15, 0, 0),
+                         new PedComponent(8, 0, 0, 0),
                          new PedComponent(9, 0, 0, 0),
                          new PedComponent(10, 0, 0, 0),
-                         new PedComponent(11, 66, 1, 0),
+                         new PedComponent(11, 7, 1, 0),
                     },
-                    Description = "A good middleground to make sure you break enemies",
+                    Description = "Does the red indicate how many people this man has killed? Probably.",
                     TebexPackageId = 0
                 };
+
+                //insertedOutfit = await m_database.InsertOutfit(toInsertOutfit);
+                //Debug.WriteLine($"Inserted Outfit [{insertedOutfit.Name}] with ID [{insertedOutfit.Id}]");
 
                 var newWeaponTint = new WeaponTint
                 {
@@ -728,11 +783,6 @@ namespace GGSQL.Controllers
 
                 //var insertedWeaponTint = await m_database.InsertWeaponTint(newWeaponTint);
                 //Debug.WriteLine($"Inserted WeaponTint [{insertedWeaponTint.Name}] with ID [{insertedWeaponTint.Id}]");
-
-
-                //insertedOutfit = await m_database.InsertOutfit(toInsertOutfit);
-                //Debug.WriteLine($"Inserted Outfit [{insertedOutfit.Name}] with ID [{insertedOutfit.Id}]");
-
 
                 Cache.Outfits = await m_database.GetOutfits();
                 Cache.GeneralItems = await m_database.GetGeneralItems();
