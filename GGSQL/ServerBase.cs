@@ -17,6 +17,7 @@ namespace GGSQL
 
         private MySqlDatabase _db = null;
         private bool _dbDebug = false;
+        private bool _firstTick = true;
 
         private int _saveMinutes;
         private int _flushHours;
@@ -38,7 +39,7 @@ namespace GGSQL
 
         public ServerBase()
         {
-            _saveMinutes = 5;
+            _saveMinutes = 15;
             _flushHours = 3;
 
             _logger = new ServerLogger("GGSQL", LogLevel.Info);
@@ -50,19 +51,43 @@ namespace GGSQL
             EventHandlers["gg_internal:syncUser"] += new Action<string, string>(OnUserSync);
             EventHandlers["gg_internal:syncWinner"] += new Action<string>(OnWinnerSync);
 
-            Tick += SaveTick;
-            Tick += FlushTick;
+            // Tick += SaveTick;
+            // Tick += FlushTick;
             Tick += InitializeController;
+
+            Exports.Add("QueryResult", new Func<string, dynamic, Task<List<dynamic>>>(
+                (query, parameters) => QueryResult(query, parameters))
+            );
+            Exports.Add("QueryAsync", new Action<string, dynamic, CallbackDelegate>(
+                (query, parameters, cb) => QueryAsync(query, parameters, cb))
+            );
+        }
+
+        private async Task<List<dynamic>> QueryResult(string query, dynamic parameters)
+        {
+            var result = await _mysqlDb.QueryResult(query, _mysqlDb.TryParseParameters(parameters));
+            return result;
+        }
+
+        private void QueryAsync(string query, dynamic parameters, CallbackDelegate callback = null)
+        {
+            Task<int> resultTask = _mysqlDb.Query(query, _mysqlDb.TryParseParameters(parameters));
+#pragma warning disable CS4014
+            resultTask.ContinueWith((task) => callback?.Invoke(task.Result));
+#pragma warning restore CS4014
         }
 
         public async Task InitializeController()
         {
-            m_shopController = new ShopController(_mysqlDb, _logger);
-            RegisterScript(m_shopController);
+            await Delay(0);
+            if (_firstTick)
+            {
+                _firstTick = false;
+                m_shopController = new ShopController(_mysqlDb, _logger);
+                RegisterScript(m_shopController);
 
-            Tick -= InitializeController;
-
-            await Task.FromResult(0);
+                Tick -= InitializeController;
+            }
         }
 
         public async void BaseOnServerResourceStart(string resourceName)
@@ -78,6 +103,7 @@ namespace GGSQL
             stopWatch.Stop();
 
             _logger.Info($"[DB] Connection established in {stopWatch.ElapsedMilliseconds}ms");
+            stopWatch = null;
         }
 
         public async void OnPlayerReady([FromSource]Player player)
@@ -118,20 +144,6 @@ namespace GGSQL
 
                     Cache.Users.Add(user);
                 }
-
-                if (user.Donator)
-                {
-                    API.ExecuteCommand($"add_principal identifier.license:{licenseId} group.donator");
-                }
-
-                if (user.Moderator)
-                {
-                    API.ExecuteCommand($"add_principal identifier.license:{licenseId} group.moderator");
-                }
-
-                //_logger.Info($"gg.donator: {API.IsPlayerAceAllowed(player.Handle, "gg.donator")} for license:{user.LicenseId}");
-                //_logger.Info($"gg.moderator: {API.IsPlayerAceAllowed(player.Handle, "gg.moderator")} for license:{user.LicenseId}");
-                TriggerEvent("gg_internal:updateTags", user.NetId);
 
                 try
                 {
@@ -230,8 +242,9 @@ namespace GGSQL
                                 };
 
                                 TriggerEvent("gg_internal:playerReady", JsonConvert.SerializeObject(user), JsonConvert.SerializeObject(clothingStyle), weaponTintIndex);
+                                TriggerEvent("gg_internal:updateTags", user.NetId, user.Moderator, user.Donator, user.Xp);
                             }
-                            catch (Exception ex)
+                            catch (Exception)
                             {
                                 Debug.WriteLine($"User ActiveUserOutfit? {user.ActiveUserOutfit} | Components? {components[0].ComponentId}");
                             }
@@ -242,7 +255,7 @@ namespace GGSQL
                         }
 
                     }
-                    catch (Exception ex)
+                    catch (Exception)
                     {
                         Debug.WriteLine("HERE");
                     }
@@ -272,7 +285,9 @@ namespace GGSQL
                 _logger.Exception("OnPlayerReady - Other -", ex);
             }
 
-            _logger.Info($"[JOIN] {player.Name} joined. (IP: {player.EndPoint})^r^7");
+
+
+            _logger.Info($"[JOIN] {player.Name} joined. (IP: {player.EndPoint})^7");
         }
 
         public void OnUpdateXpAndMoney(int netId, int addedXp, int addedMoney)
@@ -429,7 +444,7 @@ namespace GGSQL
                         Cache.Users.Remove(user);
                     }
 
-                    _logger.Info($"Saving profile of {name} was {(success ? "Successful" : "Unsuccessful")}");
+                    _logger.Info($"Saving profile of {name}^7 was {(success ? "Successful" : "Unsuccessful")}");
                 }
             }
             catch (Exception e)

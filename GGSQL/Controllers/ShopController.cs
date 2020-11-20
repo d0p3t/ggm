@@ -31,6 +31,7 @@ namespace GGSQL.Controllers
 
         private static readonly DateTime baseTime = new DateTime(1970, 1, 1);
 
+        private bool m_firstTick = true;
 
         internal ShopController(MySqlDatabase db, ServerLogger logger)
         {
@@ -46,14 +47,12 @@ namespace GGSQL.Controllers
             EventHandlers["shop-request-buy-tint"] += new Action<Player, int>(OnShopRequestBuyTint);
             EventHandlers["shop-request-equip-tint"] += new Action<Player, int>(OnShopRequestEquipTint);
 
-
-
             RegisterCommand("shopcontrolleractivateonetimeitem", new Action<int, List<object>, string>(OnActivateOneTimeItem), true);
             RegisterCommand("shopcontrollerdeactivateonetimeitem", new Action<int, List<object>, string>(OnActivateOneTimeItem), true);
 
             // RegisterCommand("claim", new Action<int, List<object>, string>(OnClaimFreeOutfits), false);
-            RegisterCommand("equip", new Action<int, List<object>, string>(OnEquipOutfit), false);
-            RegisterCommand("outfits", new Action<int, List<object>, string>(OnListOutfits), false);
+            //RegisterCommand("equip", new Action<int, List<object>, string>(OnEquipOutfit), false);
+            //RegisterCommand("outfits", new Action<int, List<object>, string>(OnListOutfits), false);
 
         }
 
@@ -436,7 +435,7 @@ namespace GGSQL.Controllers
                 {
                     outfitNumber = Convert.ToInt32(args[0]);
                 }
-                catch (Exception ex)
+                catch (Exception)
                 {
                     player.TriggerEvent("shop:prompt", "You did not choose a number");
                     return;
@@ -574,6 +573,11 @@ namespace GGSQL.Controllers
         {
             try
             {
+                await Delay(0);
+                if (!m_firstTick) return;
+
+                m_firstTick = false;
+
                 var toInsertOutfit = new Outfit
                 {
                     CreatedAt = DateTime.UtcNow,

@@ -5,12 +5,12 @@ using System.Threading.Tasks;
 using Dapper;
 using Dapper.Contrib;
 using MySql.Data.MySqlClient;
-using Newtonsoft.Json;
 using CitizenFX.Core;
 using GGSQL.Models;
 using GGSQL.Models.Styles;
 using Dapper.Contrib.Extensions;
 using System.Data;
+using System.Threading;
 
 namespace GGSQL
 {
@@ -19,7 +19,7 @@ namespace GGSQL
         private static string m_connectionString;
         private static ServerLogger m_logger;
 
-        //private readonly CustomTaskScheduler _scheduler;
+        private readonly CustomTaskScheduler _scheduler;
 
         private class DbConnection : IDisposable
         {
@@ -40,7 +40,7 @@ namespace GGSQL
         {
 
             m_connectionString = connectionString;
-            //_scheduler = new CustomTaskScheduler();
+            _scheduler = new CustomTaskScheduler();
             m_logger = logger;
 
             SqlMapper.AddTypeHandler(typeof(List<PedComponent>), new JsonTypeHandler());
@@ -133,23 +133,6 @@ namespace GGSQL
             }
         }
 
-        //public async Task<bool> UpdateClothingStyles(int userId, List<ClothingStyle> clothingStyles)
-        //{
-        //    var sql = @"UPDATE
-        //                    users
-        //                SET 
-        //                    clothingStyles = @cs
-        //                WHERE 
-        //                    id = @uId;";
-
-        //    using (var db = new DbConnection(m_connectionString))
-        //    {
-        //        var affectedRows = await db.Connection.ExecuteAsync(sql, new { cs = clothingStyles, uId = userId });
-
-        //        return affectedRows != 0 ? true : false;
-        //    }
-        //}
-
         public async Task<User> CreateNewUser(Player player)
         {
             var sql = @"INSERT INTO users
@@ -194,7 +177,6 @@ namespace GGSQL
 
             using (var db = new DbConnection(m_connectionString))
             {
-                // var clothingStyles = JsonConvert.SerializeObject(user.ClothingStyles);
                 var affectedRows = await db.Connection.ExecuteAsync(sql, new { userId = user.Id, kills = user.Kills, deaths = user.Deaths, xp = user.Xp, money = user.Money, outfitId = user.ActiveUserOutfit, weaponTintId = user.ActiveUserWeaponTint, now = DateTime.UtcNow });
                 if (affectedRows != 0)
                 {
@@ -211,7 +193,6 @@ namespace GGSQL
 
             foreach (var user in users)
             {
-                // var clothingStyles = JsonConvert.SerializeObject(user.ClothingStyles);
 
                 sql += $@"UPDATE
                             users
@@ -556,6 +537,62 @@ namespace GGSQL
                 await db.Connection.ExecuteAsync("UserBuyWeaponTint", _params, commandType: CommandType.StoredProcedure);
                 return _params.Get<int>("pSuccess");
             }
+        }
+
+        public Task<List<dynamic>> QueryResult(string query, IDictionary<string, dynamic> parameters = null)
+        {
+            return Task.Factory.StartNew(() =>
+            {
+                using(var db = new DbConnection(m_connectionString))
+                {
+                    DynamicParameters _params = new DynamicParameters();
+                    _params.AddDynamicParams(parameters);
+                    m_logger.Info("Actually querying result");
+                    var results = db.Connection.Query(query, _params);
+                    return results.ToList();
+                }
+                //Reader reader = new Reader(settings.ConnectionString, settings.Debug);
+                //reader.CommandText = query;
+                //reader.Parameters = parameters;
+                //return reader.Run();
+            }, CancellationToken.None, TaskCreationOptions.None, _scheduler);
+        }
+
+        public Task<int> Query(string query, IDictionary<string, dynamic> parameters = null, bool isInsert = false)
+        {
+            return Task.Factory.StartNew(() =>
+            {
+                using(var db = new DbConnection(m_connectionString))
+                {
+                    DynamicParameters _params = new DynamicParameters();
+                    _params.AddDynamicParams(parameters);
+                    m_logger.Info("Actually querying");
+                    return db.Connection.Execute(query, parameters);
+                }
+                //NonQuery nonQuery = new NonQuery(settings.ConnectionString, settings.Debug);
+                //nonQuery.CommandText = query;
+                //nonQuery.Parameters = parameters;
+                //nonQuery.IsInsert = isInsert;
+                //return nonQuery.Run();
+            }, CancellationToken.None, TaskCreationOptions.None, _scheduler);
+        }
+
+        public IDictionary<string, dynamic> TryParseParameters(dynamic parameters, bool debug = true)
+        {
+            IDictionary<string, dynamic> parsedParameters = null;
+            try
+            {
+                parsedParameters = parameters;
+            }
+            catch
+            {
+                // Only Warn that the user supplied bad parameters when debug is set to true
+                if (debug)
+                    CitizenFX.Core.Debug.WriteLine("[GHMattiMySQL Warning] Parameters are not in Dictionary-shape");
+                parsedParameters = null;
+            }
+
+            return parsedParameters;
         }
     }
 }
