@@ -547,14 +547,9 @@ namespace GGSQL
                 {
                     DynamicParameters _params = new DynamicParameters();
                     _params.AddDynamicParams(parameters);
-                    m_logger.Info("Actually querying result");
                     var results = db.Connection.Query(query, _params);
                     return results.ToList();
                 }
-                //Reader reader = new Reader(settings.ConnectionString, settings.Debug);
-                //reader.CommandText = query;
-                //reader.Parameters = parameters;
-                //return reader.Run();
             }, CancellationToken.None, TaskCreationOptions.None, _scheduler);
         }
 
@@ -566,14 +561,8 @@ namespace GGSQL
                 {
                     DynamicParameters _params = new DynamicParameters();
                     _params.AddDynamicParams(parameters);
-                    m_logger.Info("Actually querying");
                     return db.Connection.Execute(query, parameters);
                 }
-                //NonQuery nonQuery = new NonQuery(settings.ConnectionString, settings.Debug);
-                //nonQuery.CommandText = query;
-                //nonQuery.Parameters = parameters;
-                //nonQuery.IsInsert = isInsert;
-                //return nonQuery.Run();
             }, CancellationToken.None, TaskCreationOptions.None, _scheduler);
         }
 
