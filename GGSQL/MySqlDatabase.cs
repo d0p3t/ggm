@@ -577,7 +577,7 @@ namespace GGSQL
             {
                 // Only Warn that the user supplied bad parameters when debug is set to true
                 if (debug)
-                    CitizenFX.Core.Debug.WriteLine("[GHMattiMySQL Warning] Parameters are not in Dictionary-shape");
+                    m_logger.Warning("Parameters are not in Dictionary-shape");
                 parsedParameters = null;
             }
 
