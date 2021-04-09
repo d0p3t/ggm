@@ -39,6 +39,13 @@ namespace GGSQL
 
         public ServerBase()
         {
+            Exports.Add("QueryResult", new Func<string, dynamic, Task<List<dynamic>>>(
+                (query, parameters) => QueryResult(query, parameters))
+            );
+            Exports.Add("QueryAsync", new Action<string, dynamic, CallbackDelegate>(
+                (query, parameters, cb) => QueryAsync(query, parameters, cb))
+            );
+
             _saveMinutes = 15;
             _flushHours = 3;
 
@@ -54,13 +61,6 @@ namespace GGSQL
             // Tick += SaveTick;
             // Tick += FlushTick;
             Tick += InitializeController;
-
-            Exports.Add("QueryResult", new Func<string, dynamic, Task<List<dynamic>>>(
-                (query, parameters) => QueryResult(query, parameters))
-            );
-            Exports.Add("QueryAsync", new Action<string, dynamic, CallbackDelegate>(
-                (query, parameters, cb) => QueryAsync(query, parameters, cb))
-            );
         }
 
         private async Task<List<dynamic>> QueryResult(string query, dynamic parameters)
@@ -120,7 +120,9 @@ namespace GGSQL
                     user = Cache.Users.FirstOrDefault(x => x.LicenseId == licenseId);
 
                     if (user != null)
-                        user.NetId = Convert.ToInt32(player.Handle);
+                    {
+                        user.NetId = Convert.ToInt32(player.Handle); ;
+                    }
                 }
                 // 2. If no cached user
                 if (user == null)
@@ -143,6 +145,7 @@ namespace GGSQL
                     user.NetId = Convert.ToInt32(player.Handle);
 
                     Cache.Users.Add(user);
+
                 }
 
                 try
@@ -163,7 +166,7 @@ namespace GGSQL
                                     broke = true;
                                     break;
                                 }
-                                await Delay(0);
+                                await Delay(100);
                             }
 
                             if(!broke)
@@ -183,8 +186,6 @@ namespace GGSQL
 
                 try
                 {
-                    try
-                    {
                         var style = await m_shopController.GetActiveUserOutfit(player, user.ActiveUserOutfit, user.Id);
                         if(user.ActiveUserOutfit == 0 && style != null)
                         {
@@ -253,12 +254,6 @@ namespace GGSQL
                         {
                             Debug.WriteLine("ACTUALLY HERE");
                         }
-
-                    }
-                    catch (Exception)
-                    {
-                        Debug.WriteLine("HERE");
-                    }
                 }
                 catch (Exception ex)
                 {
@@ -285,9 +280,7 @@ namespace GGSQL
                 _logger.Exception("OnPlayerReady - Other -", ex);
             }
 
-
-
-            _logger.Info($"[JOIN] {player.Name} joined. (IP: {player.EndPoint})^7");
+            _logger.Info($"[JOIN] [{player.Handle}] {player.Name} joined. (IP: {player.EndPoint})^7");
         }
 
         public void OnUpdateXpAndMoney(int netId, int addedXp, int addedMoney)
