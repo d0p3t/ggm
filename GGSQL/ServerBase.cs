@@ -23,6 +23,7 @@ namespace GGSQL
         private int _flushHours;
 
         private ShopController m_shopController;
+        private LobbyController m_lobbyController;
 
         protected MySqlDatabase _mysqlDb
         {
@@ -85,6 +86,9 @@ namespace GGSQL
                 _firstTick = false;
                 m_shopController = new ShopController(_mysqlDb, _logger);
                 RegisterScript(m_shopController);
+
+                m_lobbyController = new LobbyController(_logger);
+                RegisterScript(m_lobbyController);
 
                 Tick -= InitializeController;
             }

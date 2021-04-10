@@ -68,6 +68,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Cache.cs" />
+    <Compile Include="Controllers\LobbyController.cs" />
     <Compile Include="Controllers\ShopController.cs" />
     <Compile Include="CustomTaskScheduler.cs" />
     <Compile Include="JsonTypeHandler.cs" />

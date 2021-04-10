@@ -232,12 +232,20 @@ namespace GGSQL
 
         public async Task<int> GetActiveUserWeaponTint(int userId)
         {
-            var sql = @"SELECT activeUserWeaponTint FROM users WHERE id=@userId";
-
-            using (var db = new DbConnection(m_connectionString))
+            try
             {
-                var oid = await db.Connection.ExecuteScalarAsync<int>(sql, new { userId = userId });
-                return oid;
+                var sql = @"SELECT activeUserWeaponTint FROM users WHERE id=@userId";
+
+                using (var db = new DbConnection(m_connectionString))
+                {
+                    var oid = await db.Connection.ExecuteScalarAsync<int>(sql, new { userId = userId });
+                    return oid;
+                }
+            }
+            catch (Exception ex)
+            {
+                m_logger.Exception("GetActiveUserWeaponTint", ex);
+                return 0;
             }
         }
 
@@ -426,7 +434,6 @@ namespace GGSQL
                 {
                     return dbResult.ToList();
                 }
-
                 return new List<UserWeaponTint>();
             }
         }
