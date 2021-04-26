@@ -221,12 +221,20 @@ namespace GGSQL
 
         public async Task<int> GetActiveUserOutfit(int userId)
         {
-            var sql = @"SELECT activeUserOutfit FROM users WHERE id=@userId";
-
-            using (var db = new DbConnection(m_connectionString))
+            try
             {
-                var oid = await db.Connection.ExecuteScalarAsync<int>(sql, new { userId = userId });
-                return oid;
+                var sql = @"SELECT activeUserOutfit FROM users WHERE id=@userId";
+
+                using (var db = new DbConnection(m_connectionString))
+                {
+                    var oid = await db.Connection.ExecuteScalarAsync<int>(sql, new { userId = userId });
+                    return oid;
+                }
+            }
+            catch (Exception ex)
+            {
+                m_logger.Exception("GetActiveUserWeaponTint", ex);
+                return 0;
             }
         }
 
@@ -388,7 +396,7 @@ namespace GGSQL
         public async Task<List<UserOutfit>> GetUserOutfits(int userId)
         {
             var sql = @"SELECT uo.id, uo.userId, uo.outfitId, uo.createdAt FROM useroutfits uo
-                            INNER JOIN outfits o ON uo.outfitId = o.id WHERE uo.userId = @userId AND o.enabled = true";
+                            INNER JOIN outfits o ON uo.outfitId = o.id WHERE uo.userId = @userId";
 
             using (var db = new DbConnection(m_connectionString))
             {
