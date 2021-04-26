@@ -414,7 +414,7 @@ namespace GGSQL
         public async Task<List<UserGeneralItem>> GetUserGeneralItems(int userId)
         {
             var sql = @"SELECT uo.id, uo.userId, uo.itemId, uo.createdAt FROM usergeneralitems uo
-                            INNER JOIN GeneralItems o ON uo.itemId = o.id WHERE uo.userId = @userId AND o.enabled = true";
+                            INNER JOIN GeneralItems o ON uo.itemId = o.id WHERE uo.userId = @userId";
 
             using (var db = new DbConnection(m_connectionString))
             {
@@ -432,7 +432,7 @@ namespace GGSQL
         public async Task<List<UserWeaponTint>> GetUserWeaponTints(int userId)
         {
             var sql = @"SELECT uo.id, uo.userId, uo.weaponTintId, uo.createdAt FROM userweapontints uo
-                            INNER JOIN weapontints o ON uo.weaponTintId = o.id WHERE uo.userId = @userId AND o.enabled = true";
+                            INNER JOIN weapontints o ON uo.weaponTintId = o.id WHERE uo.userId = @userId";
 
             using (var db = new DbConnection(m_connectionString))
             {
